@@ -13,6 +13,6 @@ The data passes and cryptomattes will be in and EXR 32 bits per render layer
 
 There's an option called Fix for Y Up. This will modify the normal and position passes so that they work in compositing software that are working Y up, like Nuke or Resolve/Fusion
 
-The combine color/Glossy/Trans will combine the three color, Glossy or Trans passes into one pass, making it easier for compositing.
+The combine color/Glossy/Trans will combine the three color, glossy or trans passes into one pass, making it easier for compositing.
 
 The denoise option will denoise the image, the diffuse, glossy and transparent passes. 
