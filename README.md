@@ -23,4 +23,4 @@ The combine color/Glossy/Trans will combine the three color, glossy or trans pas
 
 The denoise option will denoise the image, the diffuse, glossy and transparent passes. 
 
-Special thanks to Tinkerboi and Matthew Joseph for there awesome support. 
+Special thanks to Tinkerboi and MJ for there awesome support. 
