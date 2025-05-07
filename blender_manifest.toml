@@ -1,7 +1,7 @@
 
 schema_version = "1.0.0"
 id = "render_manager"
-version = "1.0.2"
+version = "1.1.1"
 name = "Render Manager"
 tagline = "Manage render visibility, passes, and node-based file outputs"
 maintainer = "BlenderBob & TinkerBoi <support@tinkerboi.com>"
@@ -9,5 +9,5 @@ type = "add-on"
 
 tags = ["Render"]
 license = ["SPDX:GPL-3.0-or-later"]
-copyright = ["2024 Robert Rioux"]
+copyright = ["2025 Robert Rioux"]
 blender_version_min = "4.2.0"
