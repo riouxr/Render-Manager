@@ -70,16 +70,44 @@ def gather_layer_settings(layer):
 
     return data
 
-def update_exr_compression(self, context):
-    for scene in bpy.data.scenes:
-        if not scene.use_nodes:
+# ------------------------------------------------------------
+#  One function that refreshes every File‑Output node
+# ------------------------------------------------------------
+def refresh_output_nodes(self, context):
+    for sc in bpy.data.scenes:
+        if not sc.use_nodes:
             continue
-        for node in scene.node_tree.nodes:
-            if isinstance(node, bpy.types.CompositorNodeOutputFile):
-                if "Color Output" in node.label:
-                    node.format.exr_codec = scene.render_manager.beauty_compression
-                elif "Data Output" in node.label:
-                    node.format.exr_codec = scene.render_manager.data_compression
+
+        rm = sc.render_manager
+        nt = sc.node_tree
+
+        for n in nt.nodes:
+            if not isinstance(n, bpy.types.CompositorNodeOutputFile):
+                continue
+
+            # choose codec
+            lbl = n.label.lower()
+            if   "color output" in lbl:   codec = rm.beauty_compression
+            elif "data output"  in lbl:   codec = rm.data_compression
+            else:                         codec = rm.beauty_compression
+            n.format.exr_codec = codec
+
+            # lossy level → use exr_codec_level if it exists, otherwise quality
+            if codec in {"DWAA", "DWAB"}:
+                level = int(rm.dwaa_compression_level)
+                if hasattr(n.format, "exr_codec_level"):
+                    n.format.exr_codec_level = level
+                else:
+                    n.format.quality = level
+
+    # redraw open node editors so the UI updates
+    for win in bpy.context.window_manager.windows:
+        for area in win.screen.areas:
+            if area.type == 'NODE_EDITOR':
+                area.tag_redraw()
+            
+# ------------------------------------------------------------
+
 
 
 def apply_layer_settings(layer, settings):
@@ -727,6 +755,12 @@ class RENDER_MANAGER_PT_panel(bpy.types.Panel):
         col.prop(scene.render_manager, "beauty_compression")
         col.prop(scene.render_manager, "data_compression")
 
+        if (
+            scene.render_manager.beauty_compression in {"DWAA", "DWAB"}
+            or scene.render_manager.data_compression in {"DWAA", "DWAB"}
+        ):
+            col = layout.column(heading="Compression Level")
+            col.prop(scene.render_manager, "dwaa_compression_level", slider=True)
 
 
 # --------------------------------------------------------------------------
@@ -995,15 +1029,13 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 previous_alpha_node = alpha_over
 
             # Link the Render Layers node’s "Image" output.
-            if scene.render_manager.fixed_for_y_up:
-                input_slot = layer_color_node.layer_slots.new("rgba")
-            else:
-                input_slot = layer_color_node.layer_slots.new("Image")
+            
+            input_slot = layer_color_node.layer_slots.new("rgba")
 
             node_tree.links.new(per_layer_node.outputs["Image"], input_slot)
 
             # Create an alpha input socket.
-            alpha_slot = layer_color_node.layer_slots.new("Alpha")
+            #alpha_slot = layer_color_node.layer_slots.new("Alpha")
 
             # Connect passes for Color and Data.
             color_passes = [
@@ -1369,10 +1401,8 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         noisy_passes,
                     )
                 denoise_node = None
-                if scene.render_manager.fixed_for_y_up:
-                    color_node_image_input_name = "rgba"
-                else:
-                    color_node_image_input_name = "Image"
+                color_node_image_input_name = "rgba"
+
                 if (not scene.render_manager.denoise) or (
                     not scene.render_manager.denoise_image
                 ):
@@ -1497,6 +1527,9 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         )
 
             for pass_name in per_layer_node.outputs:
+                    # ── ignore passes we don’t want on the colour EXR ───────────────
+                if pass_name.name in {"Image", "Alpha"}:
+                    continue
                 if pass_name.name not in backup_only_passes:
                     if (not pass_name.is_unavailable) and (not pass_name.is_linked):
                         if not pass_name.name in layer_color_node.inputs:
@@ -1554,7 +1587,7 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
             ("DWAB", "DWAB", ""),
         ],
         default="DWAA",
-        update=update_exr_compression
+        update = refresh_output_nodes,
     )
 
     data_compression: bpy.props.EnumProperty(
@@ -1573,10 +1606,18 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
             ("DWAB", "DWAB", ""),
         ],
         default="ZIP",
-        update=update_exr_compression
+        update = refresh_output_nodes,
     )
-       
-    
+
+    dwaa_compression_level: bpy.props.IntProperty(
+        name="DWAA Compression Level",
+        description="Lossy compression level for DWAA/DWAB (0 = highest compression, 100 = lossless)",
+        default=45,
+        min=0,
+        max=100,
+        update = refresh_output_nodes, 
+    )       
+        
     fixed_for_y_up: bpy.props.BoolProperty(
         name="Make Y Up",
         description="Enable to make the coordinate system for compatible with software that assumes Y is up (Currently does nothing)",
