@@ -70,43 +70,26 @@ def gather_layer_settings(layer):
 
     return data
 
-# ------------------------------------------------------------
-#  One function that refreshes every File‑Output node
-# ------------------------------------------------------------
-def refresh_output_nodes(self, context):
-    for sc in bpy.data.scenes:
-        if not sc.use_nodes:
+def update_exr_compression(self, context):
+    for scene in bpy.data.scenes:
+        if not scene.use_nodes:
             continue
+        for node in scene.node_tree.nodes:
+            if isinstance(node, bpy.types.CompositorNodeOutputFile):
+                codec = None
+                if "Color Output" in node.label:
+                    codec = scene.render_manager.beauty_compression
+                    node.format.exr_codec = codec
+                elif "Data Output" in node.label:
+                    codec = scene.render_manager.data_compression
+                    node.format.exr_codec = codec
+                elif "Noisy Output" in node.label or "Backup Output" in node.label:
+                    codec = scene.render_manager.beauty_compression
+                    node.format.exr_codec = codec
 
-        rm = sc.render_manager
-        nt = sc.node_tree
-
-        for n in nt.nodes:
-            if not isinstance(n, bpy.types.CompositorNodeOutputFile):
-                continue
-
-            # choose codec
-            lbl = n.label.lower()
-            if   "color output" in lbl:   codec = rm.beauty_compression
-            elif "data output"  in lbl:   codec = rm.data_compression
-            else:                         codec = rm.beauty_compression
-            n.format.exr_codec = codec
-
-            # lossy level → use exr_codec_level if it exists, otherwise quality
-            if codec in {"DWAA", "DWAB"}:
-                level = int(rm.dwaa_compression_level)
-                if hasattr(n.format, "exr_codec_level"):
-                    n.format.exr_codec_level = level
-                else:
-                    n.format.quality = level
-
-    # redraw open node editors so the UI updates
-    for win in bpy.context.window_manager.windows:
-        for area in win.screen.areas:
-            if area.type == 'NODE_EDITOR':
-                area.tag_redraw()
-            
-# ------------------------------------------------------------
+                # Only set level if DWAA/DWAB
+                if exr_codec in {"DWAA", "DWAB"}:
+                    node.format.exr_codec_level = scene.render_manager.dwaa_compression_level
 
 
 
@@ -677,11 +660,11 @@ class RENDER_MANAGER_PT_panel(bpy.types.Panel):
         col = layout.column(heading="EXR Compression")
 
         # Add "Create Render Layer Settings" Button
-        layout.operator(
-            "wm.collection_spreadsheet",
-            text="Collection Manager",
-            icon="OUTLINER_COLLECTION",
-        )
+        #layout.operator(
+        #    "wm.collection_spreadsheet",
+        #    text="Collection Manager",
+        #    icon="OUTLINER_COLLECTION",
+        #)
         layout.operator(
             "wm.view_layer_settings",
             text="Render Layer Settings",
@@ -723,6 +706,9 @@ class RENDER_MANAGER_PT_panel(bpy.types.Panel):
         sub.active = scene.render_manager.denoise
         sub = col.row()
         sub.prop(scene.render_manager, "denoise_transmission")
+        sub.active = scene.render_manager.denoise
+        sub = col.row()
+        sub.prop(scene.render_manager, "denoise_lightgroup")
         sub.active = scene.render_manager.denoise
         sub = col.row()
         sub.prop(scene.render_manager, "denoise_alpha")
@@ -840,7 +826,6 @@ def ensure_node_group(name):
 
 class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
     """Create and connect file output nodes based on the selected File Handling mode."""
-
     bl_idname = "wm.create_render_nodes"
     bl_label = "Create Render Nodes"
     bl_options = {"REGISTER", "UNDO"}
@@ -851,29 +836,22 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             self.report({'ERROR'}, "Please save the file first.")
             return {'CANCELLED'}
         scene = context.scene
-
         # ✅ Ensure the compositor is enabled
         scene.use_nodes = True
-
         node_tree = scene.node_tree
-
         y_up = ensure_node_group("Y-Up")
         vector_node = ensure_node_group("Vector")
         # y_up = ensure_node_group("Y-Up")
         # combine_node = ensure_combine_pass_node_groups()
         # vector_node = ensure_vector_node_groups()
-
         # ✅ Clear existing nodes
         node_tree.nodes.clear()
-
         # ✅ Define column and row spacing for structured node layout
         column_spacing = 300
         row_spacing = -600  # Adjusted for even node spacing
         previous_alpha_node = None
-
         composite_node = node_tree.nodes.new(type="CompositorNodeComposite")
         composite_node.location = (7 * column_spacing, 0)
-
         # ✅ Create render nodes
         for i, vl in enumerate(scene.view_layers):
             clean_layer_name = (
@@ -886,17 +864,14 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 continue
             x_pos = 0  # Keep first column aligned
             y_pos = i * row_spacing  # Arrange nodes in rows per layer
-
             # ✅ Create a unique Render Layers node for this layer
             per_layer_node = node_tree.nodes.new(type="CompositorNodeRLayers")
             per_layer_node.layer = vl.name
             per_layer_node.location = (x_pos, y_pos)
-
             # ✅ Handle Y-Up Fix for Normal and Position Passes
             normal_combine_xyz = None
             position_combine_xyz = None
             y_ups = {}
-
             if scene.render_manager.fixed_for_y_up:
                 # Check if Position pass exists
                 if "Position" in per_layer_node.outputs:
@@ -906,11 +881,9 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                     y_up_node.label = "Y-Up Position"
                     y_up_node.hide = True
                     y_ups["Position"] = y_up_node
-
                     node_tree.links.new(
                         per_layer_node.outputs["Position"], y_up_node.inputs[0]
                     )
-
                 # Check if Normal pass exists
                 if "Normal" in per_layer_node.outputs:
                     y_up_node = node_tree.nodes.new("CompositorNodeGroup")
@@ -919,11 +892,9 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                     y_up_node.label = "Y-Up Normal"
                     y_up_node.hide = True
                     y_ups["Normal"] = y_up_node
-
                     node_tree.links.new(
                         per_layer_node.outputs["Normal"], y_up_node.inputs[0]
                     )
-
                 if "Vector" in per_layer_node.outputs:
                     y_up_node = node_tree.nodes.new("CompositorNodeGroup")
                     y_up_node.node_tree = vector_node
@@ -935,22 +906,18 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                     node_tree.links.new(
                         per_layer_node.outputs["Vector"], y_up_node.inputs[0]
                     )
-
             # ✅ Create File Output nodes for Color and Data
             layer_color_node = node_tree.nodes.new("CompositorNodeOutputFile")
             layer_data_node = node_tree.nodes.new("CompositorNodeOutputFile")
             layer_color_node.label = f"{clean_layer_name} Color Output"
             layer_data_node.label = f"{clean_layer_name} Data Output"
-
             # --- Modified base path block begins here ---
             user_path = bpy.path.abspath(scene.render_manager.file_output_basepath)
             layer_base_path = os.path.join(user_path, clean_layer_name)
             os.makedirs(layer_base_path, exist_ok=True)
-
             # Convert the (possibly relative) base path to an absolute path and create the directory.
             abs_layer_base_path = bpy.path.abspath(layer_base_path)
             os.makedirs(abs_layer_base_path, exist_ok=True)
-
             # Set the file output nodes' base_path property.
             layer_color_node.base_path = os.path.join(
                 layer_base_path, f"{clean_layer_name}.####.exr"
@@ -959,7 +926,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 layer_base_path, f"{clean_layer_name}_data.####.exr"
             )
             # --- Modified base path block ends here ---
-
             layer_color_node.format.file_format = "OPEN_EXR_MULTILAYER"
             layer_data_node.format.file_format = "OPEN_EXR_MULTILAYER"
             layer_color_node.format.exr_codec = scene.render_manager.beauty_compression
@@ -975,10 +941,8 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             layer_data_node.layer_slots.clear()  # we don't need the Image input
             layer_color_node.layer_slots.clear()  # we don't need the Image input
             layer_data_node.format.color_depth = "32"  # data node is always 32 bit
-
             layer_color_node.location = (x_pos + 4 * column_spacing, y_pos)
             layer_data_node.location = (x_pos + 5 * column_spacing, y_pos)
-
             if (
                 scene.render_manager.save_noisy_separately
                 and scene.denoise
@@ -995,7 +959,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 )
                 layer_noisy_node.layer_slots.clear()  # we don't need the Image input
                 layer_noisy_node.location = (x_pos + 6 * column_spacing, y_pos)
-
             if scene.render_manager.backup_passes:
                 layer_backup_node = node_tree.nodes.new("CompositorNodeOutputFile")
                 layer_backup_node.label = f"{clean_layer_name} Backup Output"
@@ -1008,10 +971,8 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 )
                 layer_backup_node.layer_slots.clear()  # Image input will be created by node linking process
                 layer_backup_node.location = (x_pos - 1 * column_spacing, y_pos)
-
             # ✅ Create Alpha Over nodes for compositing
             alpha_over = None
-
             if i == 0:
                 alpha_over = per_layer_node
             else:
@@ -1020,23 +981,20 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 node_tree.links.new(
                     per_layer_node.outputs["Image"], alpha_over.inputs[1]
                 )
-
             if alpha_over:
                 if previous_alpha_node:
                     node_tree.links.new(
                         previous_alpha_node.outputs["Image"], alpha_over.inputs[2]
                     )
                 previous_alpha_node = alpha_over
-
             # Link the Render Layers node’s "Image" output.
-            
-            input_slot = layer_color_node.layer_slots.new("rgba")
-
+            if scene.render_manager.fixed_for_y_up:
+                input_slot = layer_color_node.layer_slots.new("rgba")
+            else:
+                input_slot = layer_color_node.layer_slots.new("Image")
             node_tree.links.new(per_layer_node.outputs["Image"], input_slot)
-
             # Create an alpha input socket.
-            #alpha_slot = layer_color_node.layer_slots.new("Alpha")
-
+            alpha_slot = layer_color_node.layer_slots.new("Alpha")
             # Connect passes for Color and Data.
             color_passes = [
                 "DiffDir",
@@ -1077,7 +1035,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             ]
             noisy_passes = []
             backup_only_passes = ["Noisy Image", "Noisy Shadow Catcher"]
-
             if scene.render_manager.combine_diff_glossy:
                 vl.use_pass_diffuse_color = True
                 vl.use_pass_diffuse_direct = True
@@ -1088,15 +1045,12 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 vl.use_pass_transmission_color = True
                 vl.use_pass_transmission_direct = True
                 vl.use_pass_transmission_indirect = True
-
             if scene.render_manager.denoise:
                 needs_cycles_denoising_data = False
                 needs_normal_data = False
-
                 if scene.render_manager.denoise_image:
                     vl.use_pass_diffuse_color = True
                     vl.use_pass_normal = True
-
                 if scene.render_manager.denoise_diffuse:
                     vl.use_pass_diffuse_color = True
                     vl.use_pass_diffuse_direct = True
@@ -1105,7 +1059,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         needs_normal_data = True
                     else:
                         needs_cycles_denoising_data = True
-
                 if scene.render_manager.denoise_glossy:
                     vl.use_pass_glossy_color = True
                     vl.use_pass_glossy_direct = True
@@ -1114,7 +1067,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         needs_normal_data = True
                     else:
                         needs_cycles_denoising_data = True
-
                 if scene.render_manager.denoise_transmission:
                     vl.use_pass_transmission_color = True
                     vl.use_pass_transmission_direct = True
@@ -1123,30 +1075,28 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         needs_normal_data = True
                     else:
                         needs_cycles_denoising_data = True
-
+                # --- ADD THIS LINE FOR LIGHTGROUP ---
+                if scene.render_manager.denoise_lightgroup:
+                    needs_cycles_denoising_data = True
+                # --- END ADDITION ---
                 if scene.render_manager.denoise_volumedir:
                     vl.cycles.use_pass_volume_direct = True
                     needs_cycles_denoising_data = True
-
                 if scene.render_manager.denoise_volumeind:
                     vl.cycles.use_pass_volume_indirect = True
                     needs_cycles_denoising_data = True
-
                 if scene.render_manager.denoise_shadow_catcher:
                     vl.cycles.use_pass_shadow_catcher = True
                     vl.use_pass_normal = True
                     needs_cycles_denoising_data = True
-
                 if scene.render_manager.denoise_alpha:
                     vl.use_pass_diffuse_color = True
                     vl.use_pass_normal = True
                     needs_cycles_denoising_data = True
-
                 if needs_normal_data:
                     vl.use_pass_normal = True
                 if needs_cycles_denoising_data:
                     vl.cycles.denoising_store_passes = True
-
             for pass_name in color_passes:
                 if pass_name in per_layer_node.outputs:
                     if pass_name == "DiffCol":
@@ -1361,6 +1311,43 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                                         y_pos - 360,
                                         noisy_passes,
                                     )
+            if scene.render_manager.denoise_lightgroup and scene.render_manager.denoise:
+                # Define the base Y offset for placing Light Group denoise nodes
+                lg_y_offset_base = -330 # Place them below other color pass nodes
+                # Iterate through ALL outputs of the Render Layers node for this view layer
+                for output_socket in per_layer_node.outputs:
+                    # Check if the output socket name matches your specific Light Group pass name
+                    # Adjust "Combined_LightG" if your pass has a different name
+                    if output_socket.name == "Combined_LightG" and not output_socket.is_unavailable:
+                        lg_pass_name = output_socket.name
+                        # Calculate Y position for neat stacking (simplified for one pass)
+                        lg_y_pos = y_pos + lg_y_offset_base
+
+                        # Check if required denoising data is available
+                        if ("Denoising Normal" in per_layer_node.outputs and
+                            "Denoising Albedo" in per_layer_node.outputs):
+                            # Call the helper function to create and connect the denoise node
+                            denoise_pass(
+                                node_tree,
+                                lg_pass_name,              # slot_name (name for the output slot in File Output node)
+                                output_socket,             # source_image_slot (the Light Group pass output)
+                                per_layer_node.outputs["Denoising Normal"], # source_normal_slot
+                                per_layer_node.outputs["Denoising Albedo"], # source_albedo_slot
+                                layer_color_node,          # dest_node (the Color File Output node)
+                                x_pos + column_spacing + 300, # x_pos (place denoise node to the right)
+                                lg_y_pos,                  # y_pos (use calculated position)
+                                noisy_passes,              # noisy_passes list (to potentially save noisy version)
+                            )
+                            print(f"Created denoise node for {lg_pass_name} on layer {vl.name}")
+                        else:
+                            # Fallback: Connect directly if denoising data is missing
+                            lg_slot = layer_color_node.layer_slots.new(lg_pass_name)
+                            node_tree.links.new(output_socket, lg_slot)
+                            print(f"Warning: Denoising data (Normal/Albedo) not found for Light Group pass '{lg_pass_name}' on layer '{vl.name}'. Connected directly.")
+                        # Break after finding and processing "Combined_LightG" to avoid redundant checks
+                        # If you have multiple specific light group passes, you might need a different approach
+                        break
+
 
             if scene.render_manager.denoise:
                 if scene.render_manager.denoise_volumedir:
@@ -1401,8 +1388,10 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         noisy_passes,
                     )
                 denoise_node = None
-                color_node_image_input_name = "rgba"
-
+                if scene.render_manager.fixed_for_y_up:
+                    color_node_image_input_name = "rgba"
+                else:
+                    color_node_image_input_name = "Image"
                 if (not scene.render_manager.denoise) or (
                     not scene.render_manager.denoise_image
                 ):
@@ -1490,7 +1479,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             noisy_pass,
                             layer_noisy_node.layer_slots.new(noisy_name),
                         )
-
             for pass_name in data_passes:
                 if pass_name in per_layer_node.outputs:
                     data_slot = layer_data_node.layer_slots.new(pass_name)
@@ -1525,11 +1513,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         node_tree.links.new(
                             per_layer_node.outputs[pass_name], data_input
                         )
-
             for pass_name in per_layer_node.outputs:
-                    # ── ignore passes we don’t want on the colour EXR ───────────────
-                if pass_name.name in {"Image", "Alpha"}:
-                    continue
                 if pass_name.name not in backup_only_passes:
                     if (not pass_name.is_unavailable) and (not pass_name.is_linked):
                         if not pass_name.name in layer_color_node.inputs:
@@ -1541,7 +1525,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             node_tree.links.new(
                                 pass_name, layer_color_node.inputs[pass_name.name]
                             )
-
             if scene.render_manager.backup_passes:
                 for pass_name in per_layer_node.outputs:
                     if not pass_name.is_unavailable:
@@ -1550,17 +1533,14 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             per_layer_node.outputs[pass_name.name],
                             layer_backup_node.inputs[pass_name.name],
                         )
-
         if previous_alpha_node:
             node_tree.links.new(
                 previous_alpha_node.outputs["Image"], composite_node.inputs[0]
             )
-
         self.report(
             {"INFO"}, "Created node setup for all render layers in spreadsheet layout."
         )
         return {"FINISHED"}
-
 
 # --------------------------------------------------------------------------
 #  Registration
@@ -1587,7 +1567,7 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
             ("DWAB", "DWAB", ""),
         ],
         default="DWAA",
-        update = refresh_output_nodes,
+        update=update_exr_compression
     )
 
     data_compression: bpy.props.EnumProperty(
@@ -1606,7 +1586,7 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
             ("DWAB", "DWAB", ""),
         ],
         default="ZIP",
-        update = refresh_output_nodes,
+        update=update_exr_compression
     )
 
     dwaa_compression_level: bpy.props.IntProperty(
@@ -1615,7 +1595,7 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
         default=45,
         min=0,
         max=100,
-        update = refresh_output_nodes, 
+        update=update_exr_compression,
     )       
         
     fixed_for_y_up: bpy.props.BoolProperty(
@@ -1664,6 +1644,12 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
         name="Transmission",
         description="Denoises transparent pass",
         default=True,
+    )
+    
+    denoise_lightgroup: bpy.props.BoolProperty(
+        name="Light Group",
+        description="Denoises passes related to light groups (requires manual setup in compositor)",
+        default=False,
     )
 
     denoise_volumedir: bpy.props.BoolProperty(
@@ -1821,6 +1807,7 @@ def a_denoising_operation_is_checked(scene):
         or scene.render_manager.denoise_volumedir
         or scene.render_manager.denoise_volumeind
         or scene.render_manager.denoise_shadow_catcher
+        or scene.render_manager.denoise_lightgroup
     ):
         return True
     else:
