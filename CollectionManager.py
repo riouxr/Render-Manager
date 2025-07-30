@@ -5,7 +5,6 @@ import bpy
 #    (Includes an explicit "name" property.)
 # ------------------------------------------------------------------------------
 
-
 class CollectionExpandedState(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty(name="Collection Name")
     value: bpy.props.BoolProperty(name="Expanded", default=False)
@@ -15,7 +14,6 @@ class CollectionExpandedState(bpy.types.PropertyGroup):
 # 2. Initialize our custom property on the Scene.
 #    (Remove any previous registration for hot‑reload safety.)
 # ------------------------------------------------------------------------------
-
 
 def init_custom_properties():
     if hasattr(bpy.types.Scene, "collection_spreadsheet_expanded"):
@@ -28,7 +26,6 @@ def init_custom_properties():
 # ------------------------------------------------------------------------------
 # 3. Helper functions to get and set the expanded state.
 # ------------------------------------------------------------------------------
-
 
 def get_expanded_state():
     scene = bpy.context.scene
@@ -55,7 +52,6 @@ def set_expanded_state(collection_name, value):
 # 4. UI Drawing Helper Functions
 # ------------------------------------------------------------------------------
 
-
 def find_layer_collection_by_collection(root_layer_collection, collection):
     """Recursively find the LayerCollection whose .collection is the given collection."""
     if root_layer_collection.collection == collection:
@@ -69,9 +65,7 @@ def find_layer_collection_by_collection(root_layer_collection, collection):
 
 def draw_collection(layout, view_layer, child_coll):
     """Draw the settings for a single collection in a view layer."""
-    matching_lc = find_layer_collection_by_collection(
-        view_layer.layer_collection, child_coll
-    )
+    matching_lc = find_layer_collection_by_collection(view_layer.layer_collection, child_coll)
     if matching_lc:
         cell_row = layout.row(align=True)
         cell_row.prop(matching_lc, "exclude", text="", emboss=False)
@@ -85,7 +79,7 @@ def get_split_factors(n):
     """
     Compute a list of factors that, when used successively,
     split a layout evenly into n columns.
-
+    
     For example, if n=3:
       - The first column gets 1/3 of the available width (factor = 1/3).
       - Then the remaining area is 2/3, so the second column gets (1/3) / (2/3) = 0.5.
@@ -96,14 +90,14 @@ def get_split_factors(n):
     for i in range(n - 1):
         f = (1.0 / n) / remaining
         factors.append(f)
-        remaining -= 1.0 / n
+        remaining -= (1.0 / n)
     return factors
 
 
 def draw_right_columns(layout, view_layers, draw_func):
     """
     Draw the right-side columns (one per view layer) using the same split factors.
-
+    
     This ensures that both header and table rows have equally sized columns.
     """
     n = len(view_layers)
@@ -124,7 +118,7 @@ def draw_recursive_collections(layout, view_layers, collection, level=0):
     """Recursively draw collections with an expand/collapse toggle."""
     expanded_state = get_expanded_state()
     is_expanded = expanded_state.get(collection.name, False)
-
+    
     # Create a row split into two parts:
     #  - Left (30% width) for the collection name (with indentation and toggle)
     #  - Right (70% width) for the view layer settings.
@@ -132,22 +126,21 @@ def draw_recursive_collections(layout, view_layers, collection, level=0):
     split = main_row.split(factor=0.3, align=True)
     left = split.column()
     right = split.column()
-
+    
     # Left column: add indentation, toggle button, and collection name.
     left_row = left.row(align=True)
     for _ in range(level):
         left_row.label(text="", icon="BLANK1")
     icon = "TRIA_DOWN" if is_expanded else "TRIA_RIGHT"
-    op = left_row.operator("wm.toggle_expand", text="", icon=icon, emboss=False)
+    op = left_row.operator("render_manager.toggle_expand", text="", icon=icon, emboss=False)
     op.collection_name = collection.name
     left_row.label(text=collection.name, icon="OUTLINER_COLLECTION")
-
+    
     # Right column: split equally among view layers.
     def draw_cell(col, vl):
         draw_collection(col, vl, collection)
-
     draw_right_columns(right, view_layers, draw_cell)
-
+    
     # If expanded, recursively draw child collections.
     if is_expanded:
         for child in collection.children:
@@ -158,11 +151,9 @@ def draw_recursive_collections(layout, view_layers, collection, level=0):
 # 5. Operators
 # ------------------------------------------------------------------------------
 
-
 class RENDER_MANAGER_OT_toggle_expand(bpy.types.Operator):
     """Toggle the expanded/collapsed state of a collection."""
-
-    bl_idname = "wm.toggle_expand"
+    bl_idname = "render_manager.toggle_expand"
     bl_label = "Toggle Expand"
     bl_options = {"INTERNAL"}
 
@@ -176,8 +167,7 @@ class RENDER_MANAGER_OT_toggle_expand(bpy.types.Operator):
 
 class RENDER_MANAGER_OT_collection_spreadsheet(bpy.types.Operator):
     """Popup with rows = child collections, columns = view layers."""
-
-    bl_idname = "wm.collection_spreadsheet"
+    bl_idname = "render_manager.collection_spreadsheet"
     bl_label = "Collection Manager"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -212,15 +202,12 @@ class RENDER_MANAGER_OT_collection_spreadsheet(bpy.types.Operator):
 
         def draw_header_cell(col, vl):
             col.label(text=vl.name, icon="RENDERLAYERS")
-
         draw_right_columns(right, view_layers, draw_header_cell)
 
         # --- TABLE ROWS ---
         scene_children = scene.collection.children
         if not scene_children:
-            layout.label(
-                text="No sub-collections under the Scene Collection.", icon="INFO"
-            )
+            layout.label(text="No sub-collections under the Scene Collection.", icon="INFO")
             return
 
         for child_coll in scene_children:
@@ -240,19 +227,16 @@ classes = (
     RENDER_MANAGER_OT_collection_spreadsheet,
 )
 
-
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     init_custom_properties()
-
 
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     if hasattr(bpy.types.Scene, "collection_spreadsheet_expanded"):
         del bpy.types.Scene.collection_spreadsheet_expanded
-
 
 if __name__ == "__main__":
     register()
