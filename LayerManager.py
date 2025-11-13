@@ -816,7 +816,9 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             layer_color_node = node_tree.nodes.new("CompositorNodeOutputFile")
             layer_data_node = node_tree.nodes.new("CompositorNodeOutputFile")
             layer_color_node.label = f"{clean_layer_name} Color Output"
+            layer_color_node.name = f"{clean_layer_name}"
             layer_data_node.label = f"{clean_layer_name} Data Output"
+            layer_data_node.label = f"{clean_layer_name}data"
             user_path = bpy.path.abspath(scene.render_manager.file_output_basepath)
             layer_base_path = os.path.join(user_path, clean_layer_name)
             os.makedirs(layer_base_path, exist_ok=True)
