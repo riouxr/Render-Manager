@@ -820,12 +820,17 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             layer_data_node.label = f"{clean_layer_name} Data Output"
             layer_data_node.label = f"{clean_layer_name}data"
             user_path = bpy.path.abspath(scene.render_manager.file_output_basepath)
-            layer_base_path = os.path.join(user_path, clean_layer_name)
+            
+            # Do not use layer subfolder for Ayon
+            # Add blender file name to the render path
+            blend_name = str(bpy.data.filepath).replace("\\", '/').split("/")[-1].rstrip(".blend")
+            layer_base_path = os.path.join(user_path, blend_name)
+            
             os.makedirs(layer_base_path, exist_ok=True)
             abs_layer_base_path = bpy.path.abspath(layer_base_path)
             os.makedirs(abs_layer_base_path, exist_ok=True)
             layer_color_node.base_path = os.path.join(layer_base_path, f"{clean_layer_name}.####.exr")
-            layer_data_node.base_path = os.path.join(layer_base_path, f"{clean_layer_name}_data.####.exr")
+            layer_data_node.base_path = os.path.join(layer_base_path, f"{clean_layer_name}data.####.exr")
             layer_color_node.format.file_format = "OPEN_EXR_MULTILAYER"
             layer_data_node.format.file_format = "OPEN_EXR_MULTILAYER"
             layer_color_node.format.exr_codec = scene.render_manager.beauty_compression
@@ -1547,6 +1552,7 @@ def a_denoising_operation_is_checked(scene):
 # Registration
 # --------------------------------------------------------------------------
 
+
 class RenderManagerSettings(bpy.types.PropertyGroup):
     beauty_compression: bpy.props.EnumProperty(
         name="Beauty Compression",
@@ -1639,7 +1645,7 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
         name="File Output Path",
         description="Base directory to store output EXR files",
         subtype="DIR_PATH",
-        default="//RenderOutputs"
+        default="//renders/blender"
     )
 
 classes = (
