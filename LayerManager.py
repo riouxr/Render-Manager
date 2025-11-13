@@ -1587,7 +1587,7 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
     fixed_for_y_up: bpy.props.BoolProperty(
         name="Make Y Up",
         description="Enable to make the coordinate system compatible with software that assumes Y is up",
-        default=False
+        default=True
     )
     combine_diff_glossy: bpy.props.BoolProperty(
         name="Combine Diff/Glossy/Trans",
