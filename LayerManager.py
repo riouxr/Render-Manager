@@ -6,6 +6,124 @@ import inspect
 # --------------------------------------------------------------------------
 # GLOBAL CLIPBOARD + Helpers for Copy/Paste
 # --------------------------------------------------------------------------
+def get_latest_input(node):
+    if bpy.app.version >= (5, 0, 0):
+        return node.inputs[-2]
+    else:
+        return node.inputs[-1]
+
+def get_output_slots(node):
+    if bpy.app.version >= (5, 0, 0):
+        return node.file_output_items
+    else:
+        return node.layer_slots
+
+def get_output_slot_by_name(node, slot_name):
+
+    for slot in node.file_output_items:
+        if slot.name == slot_name:
+            target_slot = slot
+            return target_slot
+
+def create_mix_node(node_tree, use_clamp):
+
+    if bpy.app.version >= (5, 0, 0):
+        mix_node = node_tree.nodes.new('ShaderNodeMix')
+        mix_node.clamp_result = use_clamp
+        return mix_node
+
+    else:
+        mix_node = node_tree.nodes.new('CompositorNodeMixRGB')
+        mix_node.use_clamp = use_clamp
+        return mix_node
+
+
+def get_pass_name(pass_name):
+    if pass_name == "volume_direct": 
+        if bpy.app.version >= (5, 0, 0):
+            return "Volume Direct"
+        else:
+            return "VolumeDir"
+    if pass_name == "volume_indirect": 
+        if bpy.app.version >= (5, 0, 0):
+            return "Volume Indirect"
+        else:
+            return "VolumeInd"
+
+    if pass_name == "alpha": 
+        if bpy.app.version >= (5, 0, 0):
+            return "Alpha"
+        else:
+            return "Alpha"
+
+    if pass_name == "normal": 
+        if bpy.app.version >= (5, 0, 0):
+            return "Normal"
+        else:
+            return "Normal"
+
+    if pass_name == "diffuse_direct": 
+        if bpy.app.version >= (5, 0, 0):
+            return "Diffuse Direct"
+        else:
+            return "DiffDir"
+
+    if pass_name == "diffuse_indirect": 
+        if bpy.app.version >= (5, 0, 0):
+            return "Diffuse Indirect"
+        else:
+            return "DiffInd"
+
+    if pass_name == "diffuse_color": 
+        if bpy.app.version >= (5, 0, 0):
+            return "Diffuse Color"
+        else:
+            return "DiffCol"
+
+    if pass_name == "glossy_direct": 
+        if bpy.app.version >= (5, 0, 0):
+            return "Glossy Direct"
+        else:
+            return "GlossDir"
+
+    if pass_name == "glossy_indirect": 
+        if bpy.app.version >= (5, 0, 0):
+            return "Glossy Indirect"
+        else:
+            return "GlossInd"
+
+    if pass_name == "glossy_color": 
+        if bpy.app.version >= (5, 0, 0):
+            return "Glossy Color"
+        else:
+            return "GlossCol"
+
+    if pass_name == "transmission_direct": 
+        if bpy.app.version >= (5, 0, 0):
+            return "TransDir"
+        else:
+            return "Transmission Direct"
+
+    if pass_name == "transmission_indirect": 
+        if bpy.app.version >= (5, 0, 0):
+            return "TransInd"
+        else:
+            return "Transmission Indirect"
+
+    if pass_name == "transmission_color": 
+        if bpy.app.version >= (5, 0, 0):
+            return "TransCol"
+        else:
+            return "Transmission Color"
+
+    if pass_name == "transparent": 
+        if bpy.app.version >= (5, 0, 0):
+            return "Transparent"
+        else:
+            return "Transp"
+
+
+
 
 RENDER_MANAGER_CLIPBOARD = {}
 
@@ -231,16 +349,16 @@ def eevee_denoise_if_available(
         not per_layer_node.outputs[pass_name].is_unavailable and
         "Normal" in per_layer_node.outputs and
         not per_layer_node.outputs["Normal"].is_unavailable and
-        "DiffCol" in per_layer_node.outputs and
-        not per_layer_node.outputs["DiffCol"].is_unavailable
+        get_pass_name("diffuse_color") in per_layer_node.outputs and
+        not per_layer_node.outputs[get_pass_name("diffuse_color")].is_unavailable
     ):
         print(f"🟡 Creating denoise node for Eevee pass: {pass_name}")
         denoise_pass(
             node_tree,
             pass_name,
             per_layer_node.outputs[pass_name],
-            per_layer_node.outputs["Normal"],
-            per_layer_node.outputs["DiffCol"],
+            per_layer_node.outputs[get_pass_name("normal")],
+            per_layer_node.outputs[get_pass_name("diffuse_color")],
             layer_color_node,
             x_pos + column_spacing + 300,
             y_pos + y_offset,
@@ -739,7 +857,55 @@ def ensure_node_group(name):
             data_to.node_groups = [name]
     group = bpy.data.node_groups.get(name)
     group.use_fake_user = True
-    return group
+    return group 
+
+
+def output_node_clear_slot(node):
+    if bpy.app.version >= (5, 0, 0):
+        node.file_output_items.clear()
+    else:
+        node.layer_slots.clear()
+
+def output_node_new_slot(node, name):
+    if bpy.app.version >= (5, 0, 0):
+        slot = node.file_output_items.new("RGBA", name)
+        return slot
+    else:
+        slot = node.layer_slots.new(name)
+        return slot
+
+
+
+def ensure_compositor_node_tree(scene):
+
+    if bpy.app.version >= (5, 0, 0):
+        if not scene.compositing_node_group:
+            new_node_tree = bpy.data.node_groups.new("Render Node", "CompositorNodeTree")
+            scene.compositing_node_group = new_node_tree
+            new_node_tree.interface.new_socket("Image", in_out="OUTPUT", socket_type="NodeSocketColor")
+        node_tree = scene.compositing_node_group
+        return node_tree
+    else:
+        scene.use_nodes = True
+        node_tree = scene.node_tree
+        return node_tree
+
+def create_output_node(node_tree):
+    if bpy.app.version >= (5, 0, 0):
+        composite_node = node_tree.nodes.new(type="NodeGroupOutput")
+        return composite_node
+    else:
+        composite_node = node_tree.nodes.new(type="CompositorNodeComposite")
+        return composite_node
+
+def set_output_node_base_path(output_node, base_path, file_name):
+
+    if bpy.app.version >= (5, 0, 0):
+        output_node.directory = base_path
+        output_node.file_name = file_name
+    else:
+        output_node.base_path = os.path.join(base_path, file_name)
+
 
 class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
     """Create and connect file output nodes based on the selected File Handling mode."""
@@ -752,15 +918,17 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             self.report({'ERROR'}, "Please save the file first.")
             return {'CANCELLED'}
         scene = context.scene
-        scene.use_nodes = True
-        node_tree = scene.node_tree
+        node_tree = ensure_compositor_node_tree(scene)
+
+
         y_up = ensure_node_group("Y-Up")
         vector_node = ensure_node_group("Vector")
         node_tree.nodes.clear()
         column_spacing = 300
         row_spacing = -600
         previous_alpha_node = None
-        composite_node = node_tree.nodes.new(type="CompositorNodeComposite")
+
+        composite_node = create_output_node(node_tree)
         composite_node.location = (7 * column_spacing, 0)
         engine = scene.render.engine.upper()
         used_slots = set()  # Track used slots for cleanup
@@ -818,12 +986,20 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             layer_color_node.label = f"{clean_layer_name} Color Output"
             layer_data_node.label = f"{clean_layer_name} Data Output"
             user_path = bpy.path.abspath(scene.render_manager.file_output_basepath)
+
             layer_base_path = os.path.join(user_path, clean_layer_name)
+
             os.makedirs(layer_base_path, exist_ok=True)
             abs_layer_base_path = bpy.path.abspath(layer_base_path)
             os.makedirs(abs_layer_base_path, exist_ok=True)
-            layer_color_node.base_path = os.path.join(layer_base_path, f"{clean_layer_name}.####.exr")
-            layer_data_node.base_path = os.path.join(layer_base_path, f"{clean_layer_name}_data.####.exr")
+
+
+
+            set_output_node_base_path(layer_color_node, layer_base_path, f"{clean_layer_name}.####.exr")
+            set_output_node_base_path(layer_data_node, layer_base_path, f"{clean_layer_name}_data.####.exr")
+
+
+
             layer_color_node.format.file_format = "OPEN_EXR_MULTILAYER"
             layer_data_node.format.file_format = "OPEN_EXR_MULTILAYER"
             layer_color_node.format.exr_codec = scene.render_manager.beauty_compression
@@ -833,8 +1009,8 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             else:
                 layer_color_node.format.color_depth = scene.render_manager.color_depth_override
             layer_data_node.format.color_depth = "32"
-            layer_color_node.layer_slots.clear()
-            layer_data_node.layer_slots.clear()
+            output_node_clear_slot(layer_color_node)
+            output_node_clear_slot(layer_data_node)
             layer_color_node.location = (x_pos + 4 * column_spacing, y_pos)
             layer_data_node.location = (x_pos + 5 * column_spacing, y_pos)
 
@@ -844,31 +1020,35 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 if combine_diff_glossy_active:
                     initial_slots.extend(["Diffuse", "Glossy", "Transmission"])
                 else:
-                    initial_slots.extend(["DiffDir", "DiffInd", "DiffCol", "GlossDir", "GlossInd", "GlossCol", "TransDir", "TransInd", "TransCol"])
+                    initial_slots.extend([get_pass_name("diffuse_direct"), get_pass_name("diffuse_indirect"), get_pass_name("diffuse_color"), get_pass_name("glossy_direct"), get_pass_name("glossy_indirect"), get_pass_name("glossy_color"), get_pass_name("transmission_direct"), get_pass_name("transmission_indirect"), get_pass_name("transmission_color")])
             elif "EEVEE" in engine:
                 if combine_diff_glossy_eevee_active:
                     initial_slots.extend(["Diffuse Combined", "Glossy Combined"])
                 else:
-                    initial_slots.extend(["DiffDir", "DiffCol", "GlossDir", "GlossCol", "Transp"])
+                    initial_slots.extend([get_pass_name("diffuse_direct"), get_pass_name("diffuse_color"), get_pass_name("glossy_direct"), get_pass_name("glossy_color"), get_pass_name("transparent")])
             for slot_name in initial_slots:
-                layer_color_node.layer_slots.new(slot_name)
+                output_node_new_slot(layer_color_node, slot_name)
 
             # Handle Noisy and Backup Nodes
             if scene.render_manager.save_noisy_separately and scene.render_manager.denoise and a_denoising_operation_is_checked(scene):
                 layer_noisy_node = node_tree.nodes.new("CompositorNodeOutputFile")
                 layer_noisy_node.label = f"{clean_layer_name} Noisy Output"
                 layer_noisy_node.format.file_format = "OPEN_EXR_MULTILAYER"
-                layer_noisy_node.base_path = os.path.join(layer_base_path, f"{clean_layer_name}_noisy.####.exr")
+                
+                set_output_node_base_path(layer_noisy_node, layer_base_path, f"{clean_layer_name}_noisy.####.exr")
+
                 layer_noisy_node.format.color_depth = layer_color_node.format.color_depth
-                layer_noisy_node.layer_slots.clear()
+                output_node_clear_slot(layer_noisy_node)
                 layer_noisy_node.location = (x_pos + 6 * column_spacing, y_pos)
             if scene.render_manager.backup_passes:
                 layer_backup_node = node_tree.nodes.new("CompositorNodeOutputFile")
                 layer_backup_node.label = f"{clean_layer_name} Backup Output"
                 layer_backup_node.format.file_format = "OPEN_EXR_MULTILAYER"
-                layer_backup_node.base_path = os.path.join(layer_base_path, f"{clean_layer_name}_backup.####.exr")
+
+                set_output_node_base_path(layer_backup_node, layer_base_path, f"{clean_layer_name}_backup.####.exr")
+
                 layer_backup_node.format.color_depth = "32"
-                layer_backup_node.layer_slots.clear()
+                output_node_clear_slot(layer_backup_node)
                 layer_backup_node.location = (x_pos - 1 * column_spacing, y_pos)
 
             # Handle Y-Up Fix
@@ -909,7 +1089,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 return {'CANCELLED'}
 
             # Pass Definitions
-            color_passes = ["DiffCol", "GlossCol", "TransCol"]
+            color_passes = [get_pass_name("diffuse_color"), get_pass_name("glossy_color"), get_pass_name("transmission_color")]
             data_passes = [
                 "Depth", "Mist", "Position", "Normal", "UV", "Vector",
                 "IndexOB", "IndexMA",
@@ -986,17 +1166,16 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
 
             # Handle Color Passes
             for pass_name in color_passes:
-                if pass_name == "DiffCol":
-                    diffuse_direct_name = "DiffDir"
-                    diffuse_color_name = "DiffCol"
-                    diffuse_indirect_name = "DiffInd"
+                if pass_name == get_pass_name("diffuse_color"):
+                    diffuse_direct_name = get_pass_name("diffuse_direct")
+                    diffuse_color_name = get_pass_name("diffuse_color")
+                    diffuse_indirect_name = get_pass_name("diffuse_indirect")
                     has_direct = diffuse_direct_name in per_layer_node.outputs and not per_layer_node.outputs[diffuse_direct_name].is_unavailable
                     has_color = diffuse_color_name in per_layer_node.outputs and not per_layer_node.outputs[diffuse_color_name].is_unavailable
                     if "EEVEE" in engine and combine_diff_glossy_eevee_active:
                         if has_direct and has_color:
-                            multiply_diffuse_node = node_tree.nodes.new('CompositorNodeMixRGB')
+                            multiply_diffuse_node = create_mix_node(node_tree, False)
                             multiply_diffuse_node.blend_type = 'MULTIPLY'
-                            multiply_diffuse_node.use_clamp = False
                             multiply_diffuse_node.label = "Multiply Diffuse Eevee"
                             multiply_diffuse_node.location = (x_pos + column_spacing + 100, y_pos - 120)
                             multiply_diffuse_node.hide = True
@@ -1004,8 +1183,8 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             node_tree.links.new(per_layer_node.outputs[diffuse_color_name], multiply_diffuse_node.inputs[2])
                             input_slot = layer_color_node.inputs["Diffuse Combined"]
                             if scene.render_manager.denoise and scene.render_manager.denoise_diffuse:
-                                normal_socket = per_layer_node.outputs.get("Normal")
-                                albedo_socket = per_layer_node.outputs.get("DiffCol")
+                                normal_socket = per_layer_node.outputs.get(get_pass_name("normal"))
+                                albedo_socket = per_layer_node.outputs.get(get_pass_name("diffuse_color"))
                                 if normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
                                     denoise_pass(node_tree, "Diffuse Combined", multiply_diffuse_node.outputs[0], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 150, noisy_passes)
                                     used_slots.add("Diffuse Combined")
@@ -1030,8 +1209,8 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             diffuse_combined_output = combine_inputs(node_tree, "Diffuse", per_layer_node.outputs[diffuse_direct_name], indirect_output, per_layer_node.outputs[diffuse_color_name], x_pos + column_spacing + 100, y_pos - 120)
                             input_slot = layer_color_node.inputs["Diffuse"]
                             if scene.render_manager.denoise_diffuse and scene.render_manager.denoise:
-                                normal_socket = per_layer_node.outputs.get("Normal")
-                                albedo_socket = per_layer_node.outputs.get("DiffCol")
+                                normal_socket = per_layer_node.outputs.get(get_pass_name("normal"))
+                                albedo_socket = per_layer_node.outputs.get(get_pass_name("diffuse_color"))
                                 if normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
                                     denoise_pass(node_tree, "Diffuse", diffuse_combined_output.outputs[0], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 150, noisy_passes)
                                     used_slots.add("Diffuse")
@@ -1050,31 +1229,30 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                     else:
                         # Only process individual passes if not combining
                         if scene.render_manager.denoise and scene.render_manager.denoise_diffuse and not (combine_diff_glossy_active or combine_diff_glossy_eevee_active):
-                            normal_socket = per_layer_node.outputs.get("Normal")
-                            albedo_socket = per_layer_node.outputs.get("DiffCol")
+                            normal_socket = per_layer_node.outputs.get(get_pass_name("normal"))
+                            albedo_socket = per_layer_node.outputs.get(get_pass_name("diffuse_color"))
                             if has_direct and normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
-                                denoise_pass(node_tree, "DiffDir", per_layer_node.outputs["DiffDir"], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 150, noisy_passes)
-                                used_slots.add("DiffDir")
+                                denoise_pass(node_tree, get_pass_name("diffuse_direct"), per_layer_node.outputs[get_pass_name("diffuse_direct")], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 150, noisy_passes)
+                                used_slots.add(get_pass_name("diffuse_direct"))
                             if has_color and normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
-                                denoise_pass(node_tree, "DiffCol", per_layer_node.outputs["DiffCol"], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 200, noisy_passes)
-                                used_slots.add("DiffCol")
+                                denoise_pass(node_tree, get_pass_name("diffuse_color"), per_layer_node.outputs[get_pass_name("diffuse_color")], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 200, noisy_passes)
+                                used_slots.add(get_pass_name("diffuse_color"))
                             if "CYCLES" in engine:
-                                indirect_socket = per_layer_node.outputs.get("DiffInd")
+                                indirect_socket = per_layer_node.outputs.get(get_pass_name("diffuse_indirect"))
                                 if indirect_socket and not indirect_socket.is_unavailable and normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
-                                    denoise_pass(node_tree, "DiffInd", indirect_socket, normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 250, noisy_passes)
-                                    used_slots.add("DiffInd")
+                                    denoise_pass(node_tree, get_pass_name("diffuse_direct"), indirect_socket, normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 250, noisy_passes)
+                                    used_slots.add(get_pass_name("diffuse_indirect"))
 
-                elif pass_name == "GlossCol":
-                    glossy_direct_name = "GlossDir"
-                    glossy_color_name = "GlossCol"
-                    glossy_indirect_name = "GlossInd"
+                elif pass_name == get_pass_name("glossy_color"):
+                    glossy_direct_name = get_pass_name("glossy_direct")
+                    glossy_color_name = get_pass_name("glossy_color")
+                    glossy_indirect_name = get_pass_name("glossy_indirect")
                     has_direct = glossy_direct_name in per_layer_node.outputs and not per_layer_node.outputs[glossy_direct_name].is_unavailable
                     has_color = glossy_color_name in per_layer_node.outputs and not per_layer_node.outputs[glossy_color_name].is_unavailable
                     if "EEVEE" in engine and combine_diff_glossy_eevee_active:
                         if has_direct and has_color:
-                            multiply_glossy_node = node_tree.nodes.new('CompositorNodeMixRGB')
+                            multiply_glossy_node = create_mix_node(node_tree, False)
                             multiply_glossy_node.blend_type = 'MULTIPLY'
-                            multiply_glossy_node.use_clamp = False
                             multiply_glossy_node.label = "Multiply Glossy Eevee"
                             multiply_glossy_node.location = (x_pos + column_spacing + 100, y_pos - 190)
                             multiply_glossy_node.hide = True
@@ -1083,7 +1261,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             input_slot = layer_color_node.inputs["Glossy Combined"]
                             if scene.render_manager.denoise and scene.render_manager.denoise_glossy:
                                 normal_socket = per_layer_node.outputs.get("Normal")
-                                albedo_socket = per_layer_node.outputs.get("DiffCol")
+                                albedo_socket = per_layer_node.outputs.get(get_pass_name("diffuse_color"))
                                 if normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
                                     denoise_pass(node_tree, "Glossy Combined", multiply_glossy_node.outputs[0], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 300, noisy_passes)
                                     used_slots.add("Glossy Combined")
@@ -1108,8 +1286,8 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             glossy_combined_output = combine_inputs(node_tree, "Glossy", per_layer_node.outputs[glossy_direct_name], indirect_output, per_layer_node.outputs[glossy_color_name], x_pos + column_spacing + 100, y_pos - 190)
                             input_slot = layer_color_node.inputs["Glossy"]
                             if scene.render_manager.denoise_glossy and scene.render_manager.denoise:
-                                normal_socket = per_layer_node.outputs.get("Normal")
-                                albedo_socket = per_layer_node.outputs.get("GlossCol")
+                                normal_socket = per_layer_node.outputs.get(get_pass_name("normal"))
+                                albedo_socket = per_layer_node.outputs.get(get_pass_name("glossy_color"))
                                 if normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
                                     denoise_pass(node_tree, "Glossy", glossy_combined_output.outputs[0], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 300, noisy_passes)
                                     used_slots.add("Glossy")
@@ -1127,33 +1305,34 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                                     used_slots.add("Glossy Color (Fallback)")
                     else:
                         if scene.render_manager.denoise and scene.render_manager.denoise_glossy and not (combine_diff_glossy_active or combine_diff_glossy_eevee_active):
-                            normal_socket = per_layer_node.outputs.get("Normal")
-                            albedo_socket = per_layer_node.outputs.get("GlossCol")
+                            normal_socket = per_layer_node.outputs.get(get_pass_name("normal"))
+                            albedo_socket = per_layer_node.outputs.get(get_pass_name("glossy_color"))
                             if has_direct and normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
-                                denoise_pass(node_tree, "GlossDir", per_layer_node.outputs[glossy_direct_name], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 300, noisy_passes)
-                                used_slots.add("GlossDir")
+                                denoise_pass(node_tree, get_pass_name("glossy_direct"), per_layer_node.outputs[glossy_direct_name], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 300, noisy_passes)
+                                used_slots.add(get_pass_name("glossy_direct"))
                             if has_color and normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
-                                denoise_pass(node_tree, "GlossCol", per_layer_node.outputs["GlossCol"], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 350, noisy_passes)
-                                used_slots.add("GlossCol")
+                                denoise_pass(node_tree, get_pass_name("glossy_color"), per_layer_node.outputs[get_pass_name("glossy_color")], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 350, noisy_passes)
+                                used_slots.add(get_pass_name("glossy_color"))
                             if "CYCLES" in engine:
-                                indirect_socket = per_layer_node.outputs.get("GlossInd")
+                                indirect_socket = per_layer_node.outputs.get(get_pass_name("glossy_indirect"))
                                 if indirect_socket and not indirect_socket.is_unavailable and normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
-                                    denoise_pass(node_tree, "GlossInd", indirect_socket, normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 400, noisy_passes)
-                                    used_slots.add("GlossInd")
+                                    denoise_pass(node_tree, get_pass_name("glossy_indirect"), indirect_socket, normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 400, noisy_passes)
+                                    used_slots.add(get_pass_name("glossy_indirect"))
 
-                elif pass_name == "TransCol":
-                    transmission_direct_name = "TransDir" if "CYCLES" in engine else "Transp"
-                    transmission_indirect_name = "TransInd" if "CYCLES" in engine else "Transp"
-                    transmission_color_name = "TransCol" if "CYCLES" in engine else "Transp"
+                elif pass_name == get_pass_name("transmission_color"):
+                    transmission_direct_name = get_pass_name("transmission_direct") if "CYCLES" in engine else get_pass_name("transparent")
+                    transmission_indirect_name = get_pass_name("transmission_indirect") if "CYCLES" in engine else get_pass_name("transparent")
+                    transmission_color_name = get_pass_name("transmission_color") if "CYCLES" in engine else get_pass_name("transparent")
                     has_direct = transmission_direct_name in per_layer_node.outputs and not per_layer_node.outputs[transmission_direct_name].is_unavailable
                     has_color = transmission_color_name in per_layer_node.outputs and not per_layer_node.outputs[transmission_color_name].is_unavailable
                     if (combine_diff_glossy_active and "CYCLES" in engine) or (combine_diff_glossy_eevee_active and "EEVEE" in engine):
                         if has_direct and has_color:
                             transmission_combined_output = combine_inputs(node_tree, "Transmission", per_layer_node.outputs[transmission_direct_name], per_layer_node.outputs.get(transmission_indirect_name, per_layer_node.outputs[transmission_direct_name]), per_layer_node.outputs[transmission_color_name], x_pos + column_spacing + 100, y_pos - 260)
-                            input_slot = layer_color_node.inputs["Transmission"]
+                            # input_slot = layer_color_node.inputs["Transmission"]
+                            input_slot = transmission_combined_output.inputs[0]
                             if scene.render_manager.denoise_transmission and scene.render_manager.denoise:
-                                normal_socket = per_layer_node.outputs.get("Normal")
-                                albedo_socket = per_layer_node.outputs.get("TransCol" if "CYCLES" in engine else "DiffCol")
+                                normal_socket = per_layer_node.outputs.get(get_pass_name("normal"))
+                                albedo_socket = per_layer_node.outputs.get(get_pass_name("transmission_color") if "CYCLES" in engine else get_pass_name("diffuse_color"))
                                 if normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
                                     denoise_pass(node_tree, "Transmission", transmission_combined_output.outputs[0], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 450, noisy_passes)
                                     used_slots.add("Transmission")
@@ -1172,7 +1351,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                     else:
                         if scene.render_manager.denoise_transmission and scene.render_manager.denoise and not (combine_diff_glossy_active or combine_diff_glossy_eevee_active):
                             normal_socket = per_layer_node.outputs.get("Normal")
-                            albedo_socket = per_layer_node.outputs.get("TransCol" if "CYCLES" in engine else "DiffCol")
+                            albedo_socket = per_layer_node.outputs.get(get_pass_name("transmission_color") if "CYCLES" in engine else get_pass_name("diffuse_color"))
                             if has_direct and normal_socket and albedo_socket and not normal_socket.is_unavailable and not albedo_socket.is_unavailable:
                                 denoise_pass(node_tree, transmission_direct_name, per_layer_node.outputs[transmission_direct_name], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 450, noisy_passes)
                                 used_slots.add(transmission_direct_name)
@@ -1203,10 +1382,10 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         print(f"DEBUG: Attempting to denoise Eevee pass: {pass_name}")
                         pass_available = pass_name in per_layer_node.outputs
                         normal_available = "Normal" in per_layer_node.outputs
-                        diffcol_available = "DiffCol" in per_layer_node.outputs
+                        diffcol_available = get_pass_name("diffuse_color") in per_layer_node.outputs
                         pass_unavailable = pass_available and hasattr(per_layer_node.outputs[pass_name], 'is_unavailable') and per_layer_node.outputs[pass_name].is_unavailable
                         normal_unavailable = normal_available and hasattr(per_layer_node.outputs["Normal"], 'is_unavailable') and per_layer_node.outputs["Normal"].is_unavailable
-                        diffcol_unavailable = diffcol_available and hasattr(per_layer_node.outputs["DiffCol"], 'is_unavailable') and per_layer_node.outputs["DiffCol"].is_unavailable
+                        diffcol_unavailable = diffcol_available and hasattr(per_layer_node.outputs[get_pass_name("diffuse_color")], 'is_unavailable') and per_layer_node.outputs[get_pass_name("diffuse_color")].is_unavailable
                         print(f"DEBUG: Pass '{pass_name}' available: {pass_available}, is_unavailable: {pass_unavailable}")
                         print(f"DEBUG: Normal available: {normal_available}, is_unavailable: {normal_unavailable}")
                         print(f"DEBUG: DiffCol available: {diffcol_available}, is_unavailable: {diffcol_unavailable}")
@@ -1224,7 +1403,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                                 pass_name,
                                 per_layer_node.outputs[pass_name],
                                 per_layer_node.outputs["Normal"],
-                                per_layer_node.outputs["DiffCol"],
+                                per_layer_node.outputs[get_pass_name("diffuse_color")],
                                 layer_color_node,
                                 x_pos + column_spacing + 300,
                                 y_pos + y_offset,
@@ -1255,10 +1434,10 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         print(f"DEBUG: Attempting to denoise Cycles pass: {pass_name}")
                         pass_available = pass_name in per_layer_node.outputs
                         normal_available = "Normal" in per_layer_node.outputs
-                        diffcol_available = "DiffCol" in per_layer_node.outputs
+                        diffcol_available = get_pass_name("diffuse_color") in per_layer_node.outputs
                         pass_unavailable = pass_available and hasattr(per_layer_node.outputs[pass_name], 'is_unavailable') and per_layer_node.outputs[pass_name].is_unavailable
                         normal_unavailable = normal_available and hasattr(per_layer_node.outputs["Normal"], 'is_unavailable') and per_layer_node.outputs["Normal"].is_unavailable
-                        diffcol_unavailable = diffcol_available and hasattr(per_layer_node.outputs["DiffCol"], 'is_unavailable') and per_layer_node.outputs["DiffCol"].is_unavailable
+                        diffcol_unavailable = diffcol_available and hasattr(per_layer_node.outputs[get_pass_name("diffuse_color")], 'is_unavailable') and per_layer_node.outputs[get_pass_name("diffuse_color")].is_unavailable
                         print(f"DEBUG: Pass '{pass_name}' available: {pass_available}, is_unavailable: {pass_unavailable}")
                         print(f"DEBUG: Normal available: {normal_available}, is_unavailable: {normal_unavailable}")
                         print(f"DEBUG: DiffCol available: {diffcol_available}, is_unavailable: {diffcol_unavailable}")
@@ -1276,7 +1455,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                                 pass_name,
                                 per_layer_node.outputs[pass_name],
                                 per_layer_node.outputs["Normal"],
-                                per_layer_node.outputs["DiffCol"],
+                                per_layer_node.outputs[get_pass_name("diffuse_color")],
                                 layer_color_node,
                                 x_pos + column_spacing + 300,
                                 y_pos + y_offset,
@@ -1304,7 +1483,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             denoise_pass(node_tree, lg_pass_name, output_socket, per_layer_node.outputs["Denoising Normal"], per_layer_node.outputs["Denoising Albedo"], layer_color_node, x_pos + column_spacing + 300, lg_y_pos, noisy_passes)
                             used_slots.add(lg_pass_name)
                         else:
-                            lg_slot = layer_color_node.layer_slots.new(lg_pass_name)
+                            lg_slot = output_node_new_slot(layer_color_node, lg_pass_name)
                             node_tree.links.new(output_socket, lg_slot)
                             used_slots.add(lg_pass_name)
                         break
@@ -1325,24 +1504,24 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
 
                 if "CYCLES" in engine and not combine_diff_glossy_active:
                     if scene.render_manager.denoise_diffuse:
-                        try_denoise_pass("DiffDir", "Normal", "DiffCol", -150)
-                        try_denoise_pass("DiffInd", "Normal", "DiffCol", -200)
-                        try_denoise_pass("DiffCol", "Normal", "DiffCol", -250)
+                        try_denoise_pass(get_pass_name("diffuse_direct"), get_pass_name("normal"), get_pass_name("diffuse_color"), -150)
+                        try_denoise_pass(get_pass_name("diffuse_indirect"), get_pass_name("normal"), get_pass_name("diffuse_color"), -200)
+                        try_denoise_pass(get_pass_name("diffuse_color"), get_pass_name("normal"), get_pass_name("diffuse_color"), -250)
                     if scene.render_manager.denoise_glossy:
-                        try_denoise_pass("GlossDir", "Normal", "GlossCol", -300)
-                        try_denoise_pass("GlossInd", "Normal", "GlossCol", -350)
-                        try_denoise_pass("GlossCol", "Normal", "GlossCol", -400)
+                        try_denoise_pass(get_pass_name("glossy_direct"), get_pass_name("normal"), get_pass_name("glossy_color"), -300)
+                        try_denoise_pass(get_pass_name("glossy_indirect"), get_pass_name("normal"), get_pass_name("glossy_color"), -350)
+                        try_denoise_pass(get_pass_name("glossy_color"), get_pass_name("normal"), get_pass_name("glossy_color"), -400)
                     if scene.render_manager.denoise_transmission:
-                        try_denoise_pass("TransDir", "Normal", "TransCol", -450)
-                        try_denoise_pass("TransInd", "Normal", "TransCol", -500)
-                        try_denoise_pass("TransCol", "Normal", "TransCol", -550)
+                        try_denoise_pass(get_pass_name("transmission_direct"), get_pass_name("normal"),     get_pass_name("transmission_color"), -450)
+                        try_denoise_pass(get_pass_name("transmission_indirect"), get_pass_name("normal"),   get_pass_name("transmission_color"), -500)
+                        try_denoise_pass(get_pass_name("transmission_color"), get_pass_name("normal"),      get_pass_name("transmission_color"), -550)
                 if scene.render_manager.denoise_alpha:
-                    try_denoise_pass("Alpha", "Normal", "DiffCol", 0)
+                    try_denoise_pass("Alpha", "Normal", get_pass_name("diffuse_color"), 0)
                 if "CYCLES" in engine:
                     if scene.render_manager.denoise_volumedir:
-                        try_denoise_pass("VolumeDir", "Denoising Normal", "Denoising Albedo", -600)
+                        try_denoise_pass(get_pass_name("volume_direct"), "Denoising Normal", "Denoising Albedo", -600)
                     if scene.render_manager.denoise_volumeind:
-                        try_denoise_pass("VolumeInd", "Denoising Normal", "Denoising Albedo", -650)
+                        try_denoise_pass(get_pass_name("volume_indirect"), "Denoising Normal", "Denoising Albedo", -650)
                     if scene.render_manager.denoise_shadow_catcher:
                         try_denoise_pass("Shadow Catcher", "Denoising Normal", "Denoising Albedo", -700)
                     
@@ -1355,12 +1534,15 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         denoise_node.hide = True
                         node_tree.links.new(per_layer_node.outputs["Noisy Image"], denoise_node.inputs["Image"])
                         node_tree.links.new(per_layer_node.outputs["Normal"], denoise_node.inputs["Normal"])
-                        node_tree.links.new(per_layer_node.outputs["DiffCol"], denoise_node.inputs["Albedo"])
-                        node_tree.links.new(denoise_node.outputs["Image"], layer_color_node.layer_slots.new(color_node_image_input_name + " (Compositor Denoised)"))
+                        node_tree.links.new(per_layer_node.outputs[get_pass_name("diffuse_color")], denoise_node.inputs["Albedo"])
+
+                        output_node_new_slot(layer_color_node, color_node_image_input_name + " (Compositor Denoised)")
+                        node_tree.links.new(denoise_node.outputs["Image"], layer_color_node.inputs[color_node_image_input_name + " (Compositor Denoised)"])
+
                         used_slots.add(color_node_image_input_name + " (Compositor Denoised)")
                         noisy_passes.append([per_layer_node.outputs["Noisy Image"], "Image"])
                     else:
-                        denoise_pass(node_tree, color_node_image_input_name, per_layer_node.outputs["Image"], per_layer_node.outputs["Normal"], per_layer_node.outputs["DiffCol"], layer_color_node, x_pos + column_spacing + 300, y_pos - 50, noisy_passes)
+                        denoise_pass(node_tree, color_node_image_input_name, per_layer_node.outputs["Image"], per_layer_node.outputs["Normal"], per_layer_node.outputs[get_pass_name("diffuse_color")], layer_color_node, x_pos + column_spacing + 300, y_pos - 50, noisy_passes)
                         used_slots.add(color_node_image_input_name)
                 else:
                     node_tree.links.new(per_layer_node.outputs["Image"], layer_color_node.inputs[color_node_image_input_name])
@@ -1371,19 +1553,26 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 for noisy_pass_array in noisy_passes:
                     noisy_pass = noisy_pass_array[0]
                     noisy_name = "Noisy " + noisy_pass_array[1]
-                    node_tree.links.new(noisy_pass, layer_color_node.layer_slots.new(noisy_name))
+
+                    output_node_new_slot(layer_color_node, noisy_name)
+                    node_tree.links.new(noisy_pass, layer_color_node.inputs[noisy_name])
+
                     used_slots.add(noisy_name)
             if scene.render_manager.save_noisy_separately and scene.render_manager.denoise:
                 for noisy_pass_array in noisy_passes:
                     noisy_pass = noisy_pass_array[0]
                     noisy_name = "Noisy " + noisy_pass_array[1]
-                    node_tree.links.new(noisy_pass, layer_noisy_node.layer_slots.new(noisy_name))
+
+                    output_node_new_slot(layer_noisy_node, noisy_name)
+                    node_tree.links.new(noisy_pass, layer_noisy_node.inputs[noisy_name])
 
             # Connect Data Passes
             for pass_name in data_passes:
                 if pass_name in per_layer_node.outputs:
-                    data_slot = layer_data_node.layer_slots.new(pass_name)
-                    data_input = layer_data_node.inputs[-1]
+                    data_slot = output_node_new_slot(layer_data_node, pass_name)
+                    # data_input = layer_data_node.inputs[-1]
+                    data_input = get_latest_input(layer_data_node)
+
                     if scene.render_manager.fixed_for_y_up and pass_name in y_ups:
                         node_tree.links.new(y_ups[pass_name].outputs[0], data_input)
                     else:
@@ -1394,8 +1583,9 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 if not output_socket.is_unavailable and not output_socket.is_linked and output_socket.name not in backup_only_passes:
                     if output_socket.name not in layer_color_node.inputs:
                         try:
-                            layer_color_node.layer_slots.new(output_socket.name)
-                            node_tree.links.new(output_socket, layer_color_node.inputs[-1])
+                            output_node_new_slot(layer_color_node, output_socket.name)
+                            
+                            node_tree.links.new(output_socket, get_latest_input(layer_color_node))
                             used_slots.add(output_socket.name)
                         except Exception as e:
                             print(f"Warning: Could not create/connect slot '{output_socket.name}': {e}")
@@ -1407,8 +1597,8 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             if scene.render_manager.backup_passes:
                 for output_socket in per_layer_node.outputs:
                     if not output_socket.is_unavailable:
-                        if output_socket.name not in [slot.name for slot in layer_backup_node.layer_slots]:
-                            layer_backup_node.layer_slots.new(output_socket.name)
+                        if output_socket.name not in [slot.name for slot in get_output_slots(layer_backup_node)]:
+                            output_node_new_slot(layer_backup_node, output_socket.name)
                         node_tree.links.new(output_socket, layer_backup_node.inputs[output_socket.name])
 
             # Clean up unused slots
@@ -1418,7 +1608,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                     "Diffuse Color (Fallback)", "Glossy Color (Fallback)", "Transmission Color (Fallback)"
                 ]
                 if combine_diff_glossy_active:
-                    slots_to_check.extend(["DiffDir", "DiffInd", "DiffCol", "GlossDir", "GlossInd", "GlossCol", "TransDir", "TransInd", "TransCol"])
+                    slots_to_check.extend([get_pass_name("diffuse_direct"), get_pass_name("diffuse_indirect"), get_pass_name("diffuse_color"), get_pass_name("glossy_direct"), get_pass_name("glossy_indirect"), get_pass_name("glossy_color"), get_pass_name("transmission_direct"), get_pass_name("transmission_indirect"), get_pass_name("transmission_color")])
                 else:
                     slots_to_check.extend(["Diffuse", "Glossy", "Transmission"])
             elif "EEVEE" in engine:
@@ -1426,13 +1616,13 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                     "Diffuse Color (Fallback)", "Glossy Color (Fallback)"
                 ]
                 if combine_diff_glossy_eevee_active:
-                    slots_to_check.extend(["DiffDir", "DiffCol", "GlossDir", "GlossCol", "Transp"])
+                    slots_to_check.extend([get_pass_name("diffuse_direct"), get_pass_name("diffuse_color"), get_pass_name("glossy_direct"), get_pass_name("glossy_color"), get_pass_name("transparent")])
                 else:
                     slots_to_check.extend(["Diffuse Combined", "Glossy Combined"])
             
             # Store used slots with their connections
             slot_connections = []
-            for slot in layer_color_node.layer_slots:
+            for slot in get_output_slots(layer_color_node):
                 if slot.name in used_slots:
                     input_socket = next((inp for inp in layer_color_node.inputs if inp.name == slot.name), None)
                     if input_socket and input_socket.is_linked:
@@ -1442,11 +1632,11 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         slot_connections.append((slot.name, None))
             
             # Clear all slots
-            layer_color_node.layer_slots.clear()
+            output_node_clear_slot(layer_color_node)
             
             # Re-add used slots and reconnect
             for slot_name, source_socket in slot_connections:
-                layer_color_node.layer_slots.new(slot_name)
+                output_node_new_slot(layer_color_node, slot_name)
                 if source_socket:
                     node_tree.links.new(source_socket, layer_color_node.inputs[slot_name])
                 print(f"Kept used slot: {slot_name}")
@@ -1458,6 +1648,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
 
         if previous_alpha_node:
             node_tree.links.new(previous_alpha_node.outputs["Image"], composite_node.inputs[0])
+
         self.report({"INFO"}, "Created node setup for all render layers in spreadsheet layout.")
         return {"FINISHED"}
 # --------------------------------------------------------------------------
@@ -1487,17 +1678,15 @@ def denoise_pass(node_tree, slot_name, source_image_slot, source_normal_slot, so
     node_tree.links.new(source_albedo_slot, denoise_node.inputs["Albedo"])
     
     # Check if slot already exists
-    target_slot = None
-    for slot in dest_node.layer_slots:
-        if slot.name == slot_name:
-            target_slot = slot
-            break
+
+    target_slot = get_output_slot_by_name(dest_node, slot_name)
+
     
     # Create new slot only if it doesn't exist
     if target_slot is None:
         try:
-            dest_node.layer_slots.new(slot_name)
-            target_slot = dest_node.inputs[-1]
+            output_node_new_slot(dest_node, slot_name)
+            target_slot = get_latest_input(dest_node)
         except RuntimeError as e:
             print(f"Error creating slot '{slot_name}': {e}")
             return
