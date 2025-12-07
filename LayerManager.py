@@ -100,21 +100,21 @@ def get_pass_name(pass_name):
 
     if pass_name == "transmission_direct": 
         if bpy.app.version >= (5, 0, 0):
-            return "TransDir"
-        else:
             return "Transmission Direct"
+        else:
+            return "TransDir"
 
     if pass_name == "transmission_indirect": 
         if bpy.app.version >= (5, 0, 0):
-            return "TransInd"
-        else:
             return "Transmission Indirect"
+        else:
+            return "TransInd"
 
     if pass_name == "transmission_color": 
         if bpy.app.version >= (5, 0, 0):
-            return "TransCol"
-        else:
             return "Transmission Color"
+        else:
+            return "TransCol"
 
     if pass_name == "transparent": 
         if bpy.app.version >= (5, 0, 0):
@@ -1323,6 +1323,9 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                     transmission_direct_name = get_pass_name("transmission_direct") if "CYCLES" in engine else get_pass_name("transparent")
                     transmission_indirect_name = get_pass_name("transmission_indirect") if "CYCLES" in engine else get_pass_name("transparent")
                     transmission_color_name = get_pass_name("transmission_color") if "CYCLES" in engine else get_pass_name("transparent")
+
+                    print(transmission_direct_name, transmission_indirect_name, transmission_color_name,  "----------")
+
                     has_direct = transmission_direct_name in per_layer_node.outputs and not per_layer_node.outputs[transmission_direct_name].is_unavailable
                     has_color = transmission_color_name in per_layer_node.outputs and not per_layer_node.outputs[transmission_color_name].is_unavailable
                     if (combine_diff_glossy_active and "CYCLES" in engine) or (combine_diff_glossy_eevee_active and "EEVEE" in engine):

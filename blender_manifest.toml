@@ -1,7 +1,7 @@
 
-schema_version = "1.0.3"
+schema_version = "1.0.0"
 id = "render_manager"
-version = "3.0.0"
+version = "3.0.1"
 name = "Render Manager"
 tagline = "Manage render visibility, passes, and node-based file outputs"
 maintainer = "BlenderBob & TinkerBoi <support@tinkerboi.com>"
