@@ -19,8 +19,8 @@ def get_output_slots(node):
         return node.layer_slots
 
 def get_output_slot_by_name(node, slot_name):
-
-    for slot in node.file_output_items:
+    slots = get_output_slots(node)
+    for slot in slots:
         if slot.name == slot_name:
             target_slot = slot
             return target_slot
@@ -1009,10 +1009,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             else:
                 layer_color_node.format.color_depth = scene.render_manager.color_depth_override
             layer_data_node.format.color_depth = "32"
-            
-            # Apply color management from render settings
-            layer_color_node.format.color_management = 'FOLLOW_SCENE'
-            layer_data_node.format.color_management = 'FOLLOW_SCENE'
             output_node_clear_slot(layer_color_node)
             output_node_clear_slot(layer_data_node)
             layer_color_node.location = (x_pos + 4 * column_spacing, y_pos)
@@ -1042,7 +1038,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 set_output_node_base_path(layer_noisy_node, layer_base_path, f"{clean_layer_name}_noisy.####.exr")
 
                 layer_noisy_node.format.color_depth = layer_color_node.format.color_depth
-                layer_noisy_node.format.color_management = 'FOLLOW_SCENE'
                 output_node_clear_slot(layer_noisy_node)
                 layer_noisy_node.location = (x_pos + 6 * column_spacing, y_pos)
             if scene.render_manager.backup_passes:
@@ -1053,7 +1048,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 set_output_node_base_path(layer_backup_node, layer_base_path, f"{clean_layer_name}_backup.####.exr")
 
                 layer_backup_node.format.color_depth = "32"
-                layer_backup_node.format.color_management = 'FOLLOW_SCENE'
                 output_node_clear_slot(layer_backup_node)
                 layer_backup_node.location = (x_pos - 1 * column_spacing, y_pos)
 

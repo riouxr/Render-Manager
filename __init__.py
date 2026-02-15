@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Render Manager",
     "author": "BlenderBob, TinkerBoi, MJ",
-    "version": (3, 0, 2),
+    "version": (3, 0, 3),
     "blender": (4, 2, 0),
     "description": "Manage render visibility, passes, collections and node-based file outputs",
     "warning": "",

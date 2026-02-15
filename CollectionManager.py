@@ -16,8 +16,6 @@ class CollectionExpandedState(bpy.types.PropertyGroup):
 # ------------------------------------------------------------------------------
 
 def init_custom_properties():
-    if hasattr(bpy.types.Scene, "collection_spreadsheet_expanded"):
-        del bpy.types.Scene.collection_spreadsheet_expanded
     bpy.types.Scene.collection_spreadsheet_expanded = bpy.props.CollectionProperty(
         type=CollectionExpandedState
     )
