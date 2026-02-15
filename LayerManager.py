@@ -984,21 +984,25 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             layer_color_node = node_tree.nodes.new("CompositorNodeOutputFile")
             layer_data_node = node_tree.nodes.new("CompositorNodeOutputFile")
             layer_color_node.label = f"{clean_layer_name} Color Output"
+            # Ayon wants a node name, label is not enough
+            layer_color_node.name = f"{clean_layer_name}"
             layer_data_node.label = f"{clean_layer_name} Data Output"
+            # Ayon wants a node name, label is not enough
+            layer_data_node.name = f"{clean_layer_name}data"
             user_path = bpy.path.abspath(scene.render_manager.file_output_basepath)
 
-            layer_base_path = os.path.join(user_path, clean_layer_name)
+            # Do not use layer subfolder for Ayon
+            # Add Blender file name toio the render path instead
+            blend_name = str(bpy.data.filepath).replace("\\", "/").split("/")[-1].rstrip(".blend")
+            layer_base_path = os.path.join(user_path, blend_name)
 
             os.makedirs(layer_base_path, exist_ok=True)
             abs_layer_base_path = bpy.path.abspath(layer_base_path)
             os.makedirs(abs_layer_base_path, exist_ok=True)
 
-
-
             set_output_node_base_path(layer_color_node, layer_base_path, f"{clean_layer_name}.####.exr")
-            set_output_node_base_path(layer_data_node, layer_base_path, f"{clean_layer_name}_data.####.exr")
-
-
+            # Remove underscore before data for Ayon
+            set_output_node_base_path(layer_data_node, layer_base_path, f"{clean_layer_name}data.####.exr")
 
             layer_color_node.format.file_format = "OPEN_EXR_MULTILAYER"
             layer_data_node.format.file_format = "OPEN_EXR_MULTILAYER"
@@ -1008,7 +1012,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 layer_color_node.format.color_depth = scene.render.image_settings.color_depth
             else:
                 layer_color_node.format.color_depth = scene.render_manager.color_depth_override
-            layer_data_node.format.color_depth = "32"
+            layer_data_node.format.color_depth = "16"
             
             # Apply color management from render settings
             layer_color_node.format.color_management = 'FOLLOW_SCENE'
@@ -1777,7 +1781,7 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
     fixed_for_y_up: bpy.props.BoolProperty(
         name="Make Y Up",
         description="Enable to make the coordinate system compatible with software that assumes Y is up",
-        default=False
+        default=True
     )
     combine_diff_glossy: bpy.props.BoolProperty(
         name="Combine Diff/Glossy/Trans",
