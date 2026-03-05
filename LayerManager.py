@@ -142,7 +142,6 @@ def gather_layer_settings(layer):
         ("", "use_pass_uv"),
         ("", "use_pass_object_index"),
         ("", "use_pass_material_index"),
-        ("", "use_pass_shadow"),
         ("", "use_pass_ambient_occlusion"),
         ("", "use_pass_emit"),
         ("", "use_pass_environment"),
@@ -156,6 +155,8 @@ def gather_layer_settings(layer):
         ("", "use_pass_transmission_indirect"),
         ("", "use_pass_transmission_color"),
         ("", "use_pass_subsurface_direct"),
+        ("cycles", "use_pass_volume_direct"),
+        ("cycles", "use_pass_volume_indirect"),
         ("", "use_pass_subsurface_indirect"),
         ("", "use_pass_subsurface_color"),
         ("", "use_pass_cryptomatte_object"),
@@ -241,7 +242,6 @@ CYCLES_PASS_GROUPS = [
         ("cycles", "denoising_store_passes", "Denoising Data"),
     ]),
     ("Light Passes", [
-        ("", "use_pass_shadow", "Shadow"),
         ("", "use_pass_ambient_occlusion", "Ambient Occlusion"),
         ("", "use_pass_emit", "Emission"),
         ("", "use_pass_environment", "Environment"),
@@ -254,8 +254,8 @@ CYCLES_PASS_GROUPS = [
         ("", "use_pass_transmission_direct", "Transmission Direct"),
         ("", "use_pass_transmission_indirect", "Transmission Indirect"),
         ("", "use_pass_transmission_color", "Transmission Color"),
-        ("", "use_pass_volume_direct", "Volume Direct"),
-        ("", "use_pass_volume_indirect", "Volume Indirect"),
+        ("cycles", "use_pass_volume_direct", "Volume Direct"),
+        ("cycles", "use_pass_volume_indirect", "Volume Indirect"),
         ("cycles", "use_pass_shadow_catcher", "Shadow Catcher"),
     ]),
     ("Cryptomatte", [
@@ -296,24 +296,6 @@ EEVEE_PASS_GROUPS = [
     ]),
 ]
 
-NODE_OPERATIONS = [
-    ("Node Operations", [
-        ("", "override_layer", "Enable Overrides For Layer"),
-        ("", "fixed_for_y_up", "Make Y Up"),
-        ("", "combine_diff_glossy", "Combine Diff/Glossy/Trans"),
-        ("", "denoise", "Enable Per Pass Denoising"),
-        ("", "denoise_image", "Image Pass"),
-        ("", "denoise_diffuse", "Diffuse Pass"),
-        ("", "denoise_glossy", "Glossy Pass"),
-        ("", "denoise_trans", "Transmission Pass"),
-        ("", "denoise_alpha", "Alpha Pass"),
-        ("", "denoise_volumetrics", "Volumetrics"),
-        ("", "denoise_shadow_catcher", "Shadow Catcher"),
-        ("", "save_noisy_in_file", "Embed Noisy Passes"),
-        ("", "save_noisy_separately", "Save Noisy Passes Separately"),
-        ("", "backup_passes", "Backup Original Passes"),
-    ]),
-]
 
 def get_pass_groups_for_engine(engine):
     """
@@ -343,7 +325,6 @@ def eevee_denoise_if_available(
     noisy_passes,
     y_offset=0
 ):
-    print(f"DEBUG: Checking Eevee denoise for pass: {pass_name}")
     if (
         pass_name in per_layer_node.outputs and
         not per_layer_node.outputs[pass_name].is_unavailable and
@@ -352,7 +333,6 @@ def eevee_denoise_if_available(
         get_pass_name("diffuse_color") in per_layer_node.outputs and
         not per_layer_node.outputs[get_pass_name("diffuse_color")].is_unavailable
     ):
-        print(f"🟡 Creating denoise node for Eevee pass: {pass_name}")
         denoise_pass(
             node_tree,
             pass_name,
@@ -365,7 +345,7 @@ def eevee_denoise_if_available(
             noisy_passes,
         )
     else:
-        print(f"⚠ Skipped Eevee denoise for '{pass_name}' — Missing sockets or data.")
+        pass
 
 # --------------------------------------------------------------------------
 # Switch View Layer Operators
@@ -427,7 +407,6 @@ class RENDER_MANAGER_OT_copy_layer_settings(bpy.types.Operator):
         vl = scene.view_layers[self.layer_index]
         global RENDER_MANAGER_CLIPBOARD
         RENDER_MANAGER_CLIPBOARD = gather_layer_settings(vl)
-        print(RENDER_MANAGER_CLIPBOARD)
         self.report({"INFO"}, f"Copied settings from layer '{vl.name}'.")
         return {"FINISHED"}
 
@@ -686,10 +665,10 @@ class RENDER_MANAGER_PT_panel(bpy.types.Panel):
         col = layout.column(heading="Per Pass Denoising")
         sub = col.row()
         sub.prop(scene.render_manager, "denoise")
-        sub = col.row()
-        sub.prop(scene.render_manager, "denoise_image")
-        sub.active = scene.render_manager.denoise
         if "CYCLES" in engine:
+            sub = col.row()
+            sub.prop(scene.render_manager, "denoise_image")
+            sub.active = scene.render_manager.denoise
             sub = col.row()
             sub.prop(scene.render_manager, "denoise_diffuse")
             sub.active = scene.render_manager.denoise
@@ -698,9 +677,6 @@ class RENDER_MANAGER_PT_panel(bpy.types.Panel):
             sub.active = scene.render_manager.denoise
             sub = col.row()
             sub.prop(scene.render_manager, "denoise_transmission")
-            sub.active = scene.render_manager.denoise
-            sub = col.row()
-            sub.prop(scene.render_manager, "denoise_lightgroup")
             sub.active = scene.render_manager.denoise
             sub = col.row()
             sub.prop(scene.render_manager, "denoise_alpha")
@@ -714,7 +690,6 @@ class RENDER_MANAGER_PT_panel(bpy.types.Panel):
             sub = col.row()
             sub.prop(scene.render_manager, "denoise_shadow_catcher")
             sub.active = scene.render_manager.denoise
-            # Added checkboxes for Emit, Environment, AO in Cycles
             sub = col.row()
             sub.prop(scene.render_manager, "denoise_emit")
             sub.active = scene.render_manager.denoise
@@ -724,7 +699,13 @@ class RENDER_MANAGER_PT_panel(bpy.types.Panel):
             sub = col.row()
             sub.prop(scene.render_manager, "denoise_ao")
             sub.active = scene.render_manager.denoise
+            sub = col.row()
+            sub.prop(scene.render_manager, "denoise_lightgroup")
+            sub.active = scene.render_manager.denoise
         elif "EEVEE" in engine:
+            sub = col.row()
+            sub.prop(scene.render_manager, "denoise_image")
+            sub.active = scene.render_manager.denoise
             sub = col.row()
             sub.prop(scene.render_manager, "denoise_diffuse")
             sub.active = scene.render_manager.denoise
@@ -822,23 +803,6 @@ class RENDER_MANAGER_OT_debug_denoise_flags(bpy.types.Operator):
     def execute(self, context):
         scene = context.scene
         rm = scene.render_manager
-        print("--- DEBUG DENOISE FLAGS ---")
-        print(f"scene.render_manager type: {type(rm)}")
-        print(f"scene.render_manager.denoise: {rm.denoise}")
-        print(f"scene.render_manager.denoise_image: {rm.denoise_image}")
-        print(f"scene.render_manager.denoise_diffuse: {rm.denoise_diffuse}")
-        print(f"scene.render_manager.denoise_glossy: {rm.denoise_glossy}")
-        print(f"scene.render_manager.denoise_transmission: {rm.denoise_transmission}")
-        print(f"scene.render_manager.denoise_alpha: {rm.denoise_alpha}")
-        print(f"scene.render_manager.denoise_emit: {rm.denoise_emit}")
-        print(f"scene.render_manager.denoise_environment: {rm.denoise_environment}")
-        print(f"scene.render_manager.denoise_shadow: {rm.denoise_shadow}")
-        print(f"scene.render_manager.denoise_ao: {rm.denoise_ao}")
-        print(f"scene.render_manager.denoise_lightgroup: {rm.denoise_lightgroup}")
-        print(f"scene.render_manager.denoise_volumedir: {rm.denoise_volumedir}")
-        print(f"scene.render_manager.denoise_volumeind: {rm.denoise_volumeind}")
-        print(f"scene.render_manager.denoise_shadow_catcher: {rm.denoise_shadow_catcher}")
-        print("---------------------------")
         self.report({'INFO'}, "Denoise flags printed to console.")
         return {'FINISHED'}
 
@@ -931,7 +895,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
         composite_node = create_output_node(node_tree)
         composite_node.location = (7 * column_spacing, 0)
         engine = scene.render.engine.upper()
-        used_slots = set()  # Track used slots for cleanup
         combine_diff_glossy_active = scene.render_manager.combine_diff_glossy and "CYCLES" in engine
         combine_diff_glossy_eevee_active = scene.render_manager.combine_diff_glossy_eevee and "EEVEE" in engine
 
@@ -940,35 +903,27 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             if not vl.use:
                 continue
 
+            used_slots = set()  # Reset per layer
+
             # Enable passes for Eevee before creating RLayers node to ensure sockets
             needs_normal_data = False
             if scene.render_manager.denoise and "EEVEE" in engine:
                 scene.render.film_transparent = True
-                if scene.render_manager.denoise_diffuse:
-                    vl.use_pass_diffuse_direct = True
-                    vl.use_pass_diffuse_color = True
+                if scene.render_manager.denoise_diffuse and vl.use_pass_diffuse_direct:
                     needs_normal_data = True
-                if scene.render_manager.denoise_glossy:
-                    vl.use_pass_glossy_direct = True
-                    vl.use_pass_glossy_color = True
+                if scene.render_manager.denoise_glossy and vl.use_pass_glossy_direct:
                     needs_normal_data = True
-                if scene.render_manager.denoise_transmission:
-                    vl.eevee.use_pass_transparent = True
+                if scene.render_manager.denoise_transmission and vl.eevee.use_pass_transparent:
                     needs_normal_data = True
-                if scene.render_manager.denoise_alpha:
-                    vl.use_pass_diffuse_color = True
+                if scene.render_manager.denoise_alpha and vl.use_pass_diffuse_color:
                     needs_normal_data = True
-                if scene.render_manager.denoise_emit:
-                    vl.use_pass_emit = True
+                if scene.render_manager.denoise_emit and vl.use_pass_emit:
                     needs_normal_data = True
-                if scene.render_manager.denoise_environment:
-                    vl.use_pass_environment = True
+                if scene.render_manager.denoise_environment and vl.use_pass_environment:
                     needs_normal_data = True
-                if scene.render_manager.denoise_shadow:
-                    vl.use_pass_shadow = True
+                if scene.render_manager.denoise_shadow and vl.use_pass_shadow:
                     needs_normal_data = True
-                if scene.render_manager.denoise_ao:
-                    vl.use_pass_ambient_occlusion = True
+                if scene.render_manager.denoise_ao and vl.use_pass_ambient_occlusion:
                     needs_normal_data = True
                 if needs_normal_data:
                     vl.use_pass_normal = True
@@ -1104,41 +1059,27 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             # Enable remaining passes for Cycles or other cases
             needs_denoising_data = False
             if scene.render_manager.denoise and "CYCLES" in engine:
-                if scene.render_manager.denoise_image:
-                    vl.use_pass_diffuse_color = True
+                if scene.render_manager.denoise_image and vl.use_pass_diffuse_color:
                     vl.use_pass_normal = True
-                if scene.render_manager.denoise_diffuse:
-                    vl.use_pass_diffuse_direct = True
-                    vl.use_pass_diffuse_indirect = True
-                    vl.use_pass_diffuse_color = True
+                if scene.render_manager.denoise_diffuse and vl.use_pass_diffuse_direct:
                     needs_normal_data = combine_diff_glossy_active
                     needs_denoising_data = not combine_diff_glossy_active
-                if scene.render_manager.denoise_glossy:
-                    vl.use_pass_glossy_direct = True
-                    vl.use_pass_glossy_indirect = True
-                    vl.use_pass_glossy_color = True
+                if scene.render_manager.denoise_glossy and vl.use_pass_glossy_direct:
                     needs_normal_data = combine_diff_glossy_active
                     needs_denoising_data = not combine_diff_glossy_active
-                if scene.render_manager.denoise_transmission:
-                    vl.use_pass_transmission_direct = True
-                    vl.use_pass_transmission_indirect = True
-                    vl.use_pass_transmission_color = True
+                if scene.render_manager.denoise_transmission and vl.use_pass_transmission_direct:
                     needs_normal_data = combine_diff_glossy_active
                     needs_denoising_data = not combine_diff_glossy_active
                 if scene.render_manager.denoise_lightgroup:
                     needs_denoising_data = True
-                if scene.render_manager.denoise_volumedir:
-                    vl.cycles.use_pass_volume_direct = True
+                if scene.render_manager.denoise_volumedir and vl.cycles.use_pass_volume_direct:
                     needs_denoising_data = True
-                if scene.render_manager.denoise_volumeind:
-                    vl.cycles.use_pass_volume_indirect = True
+                if scene.render_manager.denoise_volumeind and vl.cycles.use_pass_volume_indirect:
                     needs_denoising_data = True
-                if scene.render_manager.denoise_shadow_catcher:
-                    vl.cycles.use_pass_shadow_catcher = True
+                if scene.render_manager.denoise_shadow_catcher and vl.cycles.use_pass_shadow_catcher:
                     vl.use_pass_normal = True
                     needs_denoising_data = True
-                if scene.render_manager.denoise_alpha:
-                    vl.use_pass_diffuse_color = True
+                if scene.render_manager.denoise_alpha and vl.use_pass_diffuse_color:
                     vl.use_pass_normal = True
                     needs_denoising_data = True
                 if needs_denoising_data:
@@ -1324,7 +1265,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                     transmission_indirect_name = get_pass_name("transmission_indirect") if "CYCLES" in engine else get_pass_name("transparent")
                     transmission_color_name = get_pass_name("transmission_color") if "CYCLES" in engine else get_pass_name("transparent")
 
-                    print(transmission_direct_name, transmission_indirect_name, transmission_color_name,  "----------")
 
                     has_direct = transmission_direct_name in per_layer_node.outputs and not per_layer_node.outputs[transmission_direct_name].is_unavailable
                     has_color = transmission_color_name in per_layer_node.outputs and not per_layer_node.outputs[transmission_color_name].is_unavailable
@@ -1369,11 +1309,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
 
             # Handle Eevee-specific Denoising
             if scene.render_manager.denoise and "EEVEE" in engine:
-                print(f"DEBUG: Eevee denoising settings - denoise: {scene.render_manager.denoise}")
-                print(f"DEBUG: denoise_emit: {scene.render_manager.denoise_emit}")
-                print(f"DEBUG: denoise_environment: {scene.render_manager.denoise_environment}")
-                print(f"DEBUG: denoise_shadow: {scene.render_manager.denoise_shadow}")
-                print(f"DEBUG: denoise_ao: {scene.render_manager.denoise_ao}")
                 for pass_name, y_offset in [
                     ("Emit", -600),
                     ("Env", -650),
@@ -1382,16 +1317,12 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 ]:
                     denoise_property = f"denoise_{pass_name.lower()}" if pass_name != "Env" else "denoise_environment"
                     if getattr(scene.render_manager, denoise_property, False):
-                        print(f"DEBUG: Attempting to denoise Eevee pass: {pass_name}")
                         pass_available = pass_name in per_layer_node.outputs
                         normal_available = "Normal" in per_layer_node.outputs
                         diffcol_available = get_pass_name("diffuse_color") in per_layer_node.outputs
                         pass_unavailable = pass_available and hasattr(per_layer_node.outputs[pass_name], 'is_unavailable') and per_layer_node.outputs[pass_name].is_unavailable
                         normal_unavailable = normal_available and hasattr(per_layer_node.outputs["Normal"], 'is_unavailable') and per_layer_node.outputs["Normal"].is_unavailable
                         diffcol_unavailable = diffcol_available and hasattr(per_layer_node.outputs[get_pass_name("diffuse_color")], 'is_unavailable') and per_layer_node.outputs[get_pass_name("diffuse_color")].is_unavailable
-                        print(f"DEBUG: Pass '{pass_name}' available: {pass_available}, is_unavailable: {pass_unavailable}")
-                        print(f"DEBUG: Normal available: {normal_available}, is_unavailable: {normal_unavailable}")
-                        print(f"DEBUG: DiffCol available: {diffcol_available}, is_unavailable: {diffcol_unavailable}")
                         if (
                             pass_available and
                             not pass_unavailable and
@@ -1400,7 +1331,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             diffcol_available and
                             not diffcol_unavailable
                         ):
-                            print(f"🟡 Creating denoise node for Eevee pass: {pass_name}")
                             denoise_pass(
                                 node_tree,
                                 pass_name,
@@ -1414,19 +1344,11 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             )
                             used_slots.add(pass_name)
                         else:
-                            print(f"⚠ Skipped Eevee denoise for '{pass_name}' — Missing or unavailable sockets:")
-                            print(f"  - Pass '{pass_name}': {'Available' if pass_available else 'Missing'}, {'unavailable' if pass_unavailable else 'available'}")
-                            print(f"  - Normal: {'Available' if normal_available else 'Missing'}, {'unavailable' if normal_unavailable else 'available'}")
-                            print(f"  - DiffCol: {'Available' if diffcol_available else 'Missing'}, {'unavailable' if diffcol_unavailable else 'available'}")
                             if pass_name == "Env":
-                                print(f"WARNING: Environment pass denoising failed. Ensure 'Environment' pass is enabled in View Layer settings.")
+                                pass
 
             # Handle Cycles-specific Denoising for Emit, Env, AO
             if scene.render_manager.denoise and "CYCLES" in engine:
-                print(f"DEBUG: Cycles denoising settings - denoise: {scene.render_manager.denoise}")
-                print(f"DEBUG: denoise_emit: {scene.render_manager.denoise_emit}")
-                print(f"DEBUG: denoise_environment: {scene.render_manager.denoise_environment}")
-                print(f"DEBUG: denoise_ao: {scene.render_manager.denoise_ao}")
                 for pass_name, y_offset in [
                     ("Emit", -600),
                     ("Env", -650),
@@ -1434,16 +1356,12 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 ]:
                     denoise_property = f"denoise_{pass_name.lower()}" if pass_name != "Env" else "denoise_environment"
                     if getattr(scene.render_manager, denoise_property, False):
-                        print(f"DEBUG: Attempting to denoise Cycles pass: {pass_name}")
                         pass_available = pass_name in per_layer_node.outputs
                         normal_available = "Normal" in per_layer_node.outputs
                         diffcol_available = get_pass_name("diffuse_color") in per_layer_node.outputs
                         pass_unavailable = pass_available and hasattr(per_layer_node.outputs[pass_name], 'is_unavailable') and per_layer_node.outputs[pass_name].is_unavailable
                         normal_unavailable = normal_available and hasattr(per_layer_node.outputs["Normal"], 'is_unavailable') and per_layer_node.outputs["Normal"].is_unavailable
                         diffcol_unavailable = diffcol_available and hasattr(per_layer_node.outputs[get_pass_name("diffuse_color")], 'is_unavailable') and per_layer_node.outputs[get_pass_name("diffuse_color")].is_unavailable
-                        print(f"DEBUG: Pass '{pass_name}' available: {pass_available}, is_unavailable: {pass_unavailable}")
-                        print(f"DEBUG: Normal available: {normal_available}, is_unavailable: {normal_unavailable}")
-                        print(f"DEBUG: DiffCol available: {diffcol_available}, is_unavailable: {diffcol_unavailable}")
                         if (
                             pass_available and
                             not pass_unavailable and
@@ -1452,7 +1370,6 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             diffcol_available and
                             not diffcol_unavailable
                         ):
-                            print(f"🟡 Creating denoise node for Cycles pass: {pass_name}")
                             denoise_pass(
                                 node_tree,
                                 pass_name,
@@ -1466,14 +1383,10 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             )
                             used_slots.add(pass_name)
                         else:
-                            print(f"⚠ Skipped Cycles denoise for '{pass_name}' — Missing or unavailable sockets:")
-                            print(f"  - Pass '{pass_name}': {'Available' if pass_available else 'Missing'}, {'unavailable' if pass_unavailable else 'available'}")
-                            print(f"  - Normal: {'Available' if normal_available else 'Missing'}, {'unavailable' if normal_unavailable else 'available'}")
-                            print(f"  - DiffCol: {'Available' if diffcol_available else 'Missing'}, {'unavailable' if diffcol_unavailable else 'available'}")
                             if pass_name == "Env":
-                                print(f"WARNING: Environment pass denoising failed. Ensure 'Environment' pass is enabled in View Layer settings.")
+                                pass
                             elif pass_name == "AO":
-                                print(f"WARNING: Ambient Occlusion pass denoising failed. Ensure 'Ambient Occlusion' pass is enabled in View Layer settings.")
+                                pass
 
             # Handle Light Group Denoising
             if scene.render_manager.denoise_lightgroup and scene.render_manager.denoise and "CYCLES" in engine:
@@ -1590,8 +1503,8 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                             
                             node_tree.links.new(output_socket, get_latest_input(layer_color_node))
                             used_slots.add(output_socket.name)
-                        except Exception as e:
-                            print(f"Warning: Could not create/connect slot '{output_socket.name}': {e}")
+                        except Exception:
+                            pass
                     else:
                         node_tree.links.new(output_socket, layer_color_node.inputs[output_socket.name])
                         used_slots.add(output_socket.name)
@@ -1642,13 +1555,11 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 output_node_new_slot(layer_color_node, slot_name)
                 if source_socket:
                     node_tree.links.new(source_socket, layer_color_node.inputs[slot_name])
-                print(f"Kept used slot: {slot_name}")
             
             # Log removed slots
             for slot_name in slots_to_check:
                 if slot_name not in used_slots:
-                    print(f"Removed unused slot: {slot_name}")
-
+                    pass
         if previous_alpha_node:
             node_tree.links.new(previous_alpha_node.outputs["Image"], composite_node.inputs[0])
 
@@ -1671,7 +1582,6 @@ def combine_inputs(node_tree, group_name, input_slot1, input_slot2, input_slot3,
     return combine_nodegroup
 
 def denoise_pass(node_tree, slot_name, source_image_slot, source_normal_slot, source_albedo_slot, dest_node, x_pos, y_pos, noisy_passes):
-    print(f"🟡 Creating denoise node for: {slot_name}")
     denoise_node = node_tree.nodes.new("CompositorNodeDenoise")
     denoise_node.label = "Denoise " + str(slot_name)
     denoise_node.location = (x_pos, y_pos)
@@ -1691,7 +1601,6 @@ def denoise_pass(node_tree, slot_name, source_image_slot, source_normal_slot, so
             output_node_new_slot(dest_node, slot_name)
             target_slot = get_latest_input(dest_node)
         except RuntimeError as e:
-            print(f"Error creating slot '{slot_name}': {e}")
             return
     
     # Find the corresponding input socket for the slot
@@ -1709,9 +1618,7 @@ def denoise_pass(node_tree, slot_name, source_image_slot, source_normal_slot, so
     # Connect denoised output to the target input socket
     if target_input_socket:
         node_tree.links.new(denoise_node.outputs["Image"], target_input_socket)
-        print(f"✅ Connected denoise output to: {slot_name} → {target_input_socket.name}")
     else:
-        print(f"⚠ Could not find input socket for slot '{slot_name}'")
         return
     
     noisy_passes.append([source_image_slot, slot_name])
