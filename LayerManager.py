@@ -644,8 +644,68 @@ class RENDER_MANAGER_PT_panel(bpy.types.Panel):
 
         box.separator()
         layout.separator()
+
+        # ── Output path section ──────────────────────────────────────────────
         col = layout.column(heading="")
-        col.prop(scene.render_manager, "file_output_basepath")
+        col.prop(scene.render_manager, "use_native_output_filepath")
+
+        try:
+            native_dir, stem = get_native_output_stem(scene)
+            has_native = True
+        except Exception:
+            has_native = False
+
+        if scene.render_manager.use_native_output_filepath:
+            # Show what Blender's native output path is (read-only hint)
+            native_row = col.row()
+            native_row.enabled = False
+            native_row.prop(scene.render, "filepath", text="Native Path")
+
+            # Live preview
+            if has_native:
+                preview_box = layout.box()
+                preview_box.label(text="Output Preview:", icon="INFO")
+                shown = 0
+                for vl in scene.view_layers:
+                    if not vl.use:
+                        continue
+                    clean = vl.name.split("_", 1)[-1] if vl.name.startswith("layers_") else vl.name
+                    preview_path = os.path.join(native_dir, clean, f"{stem}_{clean}.####.exr").replace("\\", "/")
+                    preview_box.label(text=preview_path, icon="FILE_FOLDER")
+                    shown += 1
+                    if shown >= 4:
+                        remaining = sum(1 for v in scene.view_layers if v.use) - shown
+                        if remaining:
+                            preview_box.label(text=f"  … and {remaining} more layer(s)")
+                        break
+            else:
+                col.label(text="(Save the file to see the preview)", icon="ERROR")
+        else:
+            # Manual mode — editable template field
+            col.prop(scene.render_manager, "file_output_template")
+
+            # Show resolved paths so the user can verify the {LayerName} substitution
+            if has_native:
+                ref_box = layout.box()
+                ref_box.label(text="Resolved paths:", icon="INFO")
+                shown = 0
+                for vl in scene.view_layers:
+                    if not vl.use:
+                        continue
+                    clean = vl.name.split("_", 1)[-1] if vl.name.startswith("layers_") else vl.name
+                    resolved = scene.render_manager.file_output_template.replace("{LayerName}", clean)
+                    ref_path = (resolved + ".####.exr").replace("\\", "/")
+                    row = ref_box.row()
+                    row.enabled = False
+                    row.label(text=ref_path, icon="FILE_FOLDER")
+                    shown += 1
+                    if shown >= 4:
+                        remaining = sum(1 for v in scene.view_layers if v.use) - shown
+                        if remaining:
+                            ref_box.label(text=f"  … and {remaining} more layer(s)")
+                        break
+        # ─────────────────────────────────────────────────────────────────────
+
         layout.operator("wm.view_layer_settings", text="Render Layer Settings", icon="MODIFIER")
         layout.operator("render_manager.collection_spreadsheet", text="Collection Manager", icon="OUTLINER_COLLECTION")
         layout.operator("wm.create_render_nodes", text="Create Render Nodes", icon="NODETREE")
@@ -871,6 +931,47 @@ def set_output_node_base_path(output_node, base_path, file_name):
         output_node.base_path = os.path.join(base_path, file_name)
 
 
+def get_native_output_stem(scene):
+    """Parse scene.render.filepath into (directory, stem).
+
+    Returns the directory portion and a clean file stem (stripped of
+    frame padding ``####`` and any trailing image extension) so that
+    per-layer output names can be derived from the user's native
+    Blender render path.
+    """
+    native_fp = scene.render.filepath or "//"
+    native_dir = os.path.dirname(native_fp)
+    native_file = os.path.basename(native_fp)
+
+    # Strip trailing frame-padding characters and dots
+    stem = native_file.rstrip("#").rstrip(".")
+
+    # Strip common image extensions
+    for ext in (".exr", ".EXR", ".png", ".PNG", ".jpg", ".JPG", ".jpeg", ".JPEG", ".tif", ".TIF"):
+        if stem.endswith(ext):
+            stem = stem[: -len(ext)]
+            break
+
+    if not stem:
+        # Fall back to the blend file name when the native path has no filename portion
+        stem = os.path.splitext(os.path.basename(bpy.data.filepath))[0] if bpy.data.is_saved else "render"
+
+    return native_dir or "//", stem
+
+
+def _sync_template_from_native(self, context):
+    """Update callback: when native mode is turned OFF, populate the
+    editable template with what native mode would have produced so the
+    user has a concrete starting point to edit."""
+    if not self.use_native_output_filepath:
+        try:
+            native_dir, stem = get_native_output_stem(context.scene)
+            nd = native_dir.rstrip("/\\")
+            self.file_output_template = f"{nd}/{{LayerName}}/{stem}_{{LayerName}}"
+        except Exception:
+            pass
+
+
 class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
     """Create and connect file output nodes based on the selected File Handling mode."""
     bl_idname = "wm.create_render_nodes"
@@ -940,18 +1041,33 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             layer_data_node = node_tree.nodes.new("CompositorNodeOutputFile")
             layer_color_node.label = f"{clean_layer_name} Color Output"
             layer_data_node.label = f"{clean_layer_name} Data Output"
-            user_path = bpy.path.abspath(scene.render_manager.file_output_basepath)
 
-            layer_base_path = os.path.join(user_path, clean_layer_name)
+            # ── Path resolution ──────────────────────────────────────────────
+            if scene.render_manager.use_native_output_filepath:
+                native_dir, stem = get_native_output_stem(scene)
+                base_root = bpy.path.abspath(native_dir)
+                layer_base_path = os.path.join(base_root, clean_layer_name)
+                layer_filename        = f"{stem}_{clean_layer_name}.####.exr"
+                layer_data_filename   = f"{stem}_{clean_layer_name}_data.####.exr"
+                layer_noisy_filename  = f"{stem}_{clean_layer_name}_noisy.####.exr"
+                layer_backup_filename = f"{stem}_{clean_layer_name}_backup.####.exr"
+            else:
+                resolved = scene.render_manager.file_output_template.replace("{LayerName}", clean_layer_name)
+                resolved_abs = bpy.path.abspath(resolved)
+                layer_base_path = os.path.dirname(resolved_abs)
+                file_stem = os.path.basename(resolved_abs)
+                layer_filename        = f"{file_stem}.####.exr"
+                layer_data_filename   = f"{file_stem}_data.####.exr"
+                layer_noisy_filename  = f"{file_stem}_noisy.####.exr"
+                layer_backup_filename = f"{file_stem}_backup.####.exr"
+            # ─────────────────────────────────────────────────────────────────
 
             os.makedirs(layer_base_path, exist_ok=True)
             abs_layer_base_path = bpy.path.abspath(layer_base_path)
             os.makedirs(abs_layer_base_path, exist_ok=True)
 
-
-
-            set_output_node_base_path(layer_color_node, layer_base_path, f"{clean_layer_name}.####.exr")
-            set_output_node_base_path(layer_data_node, layer_base_path, f"{clean_layer_name}_data.####.exr")
+            set_output_node_base_path(layer_color_node, layer_base_path, layer_filename)
+            set_output_node_base_path(layer_data_node, layer_base_path, layer_data_filename)
 
 
 
@@ -990,7 +1106,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 layer_noisy_node.label = f"{clean_layer_name} Noisy Output"
                 layer_noisy_node.format.file_format = "OPEN_EXR_MULTILAYER"
                 
-                set_output_node_base_path(layer_noisy_node, layer_base_path, f"{clean_layer_name}_noisy.####.exr")
+                set_output_node_base_path(layer_noisy_node, layer_base_path, layer_noisy_filename)
 
                 layer_noisy_node.format.color_depth = layer_color_node.format.color_depth
                 output_node_clear_slot(layer_noisy_node)
@@ -1000,7 +1116,7 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 layer_backup_node.label = f"{clean_layer_name} Backup Output"
                 layer_backup_node.format.file_format = "OPEN_EXR_MULTILAYER"
 
-                set_output_node_base_path(layer_backup_node, layer_base_path, f"{clean_layer_name}_backup.####.exr")
+                set_output_node_base_path(layer_backup_node, layer_base_path, layer_backup_filename)
 
                 layer_backup_node.format.color_depth = "32"
                 output_node_clear_slot(layer_backup_node)
@@ -1732,11 +1848,25 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
         description="Use the color depth configured in the OpenEXR output settings",
         name="Color Depth"
     )
-    file_output_basepath: bpy.props.StringProperty(
-        name="File Output Path",
-        description="Base directory to store output EXR files",
-        subtype="DIR_PATH",
-        default="//RenderOutputs"
+    file_output_template: bpy.props.StringProperty(
+        name="Output Path Template",
+        description=(
+            "Path template for manual output. Use {LayerName} as a token — it is "
+            "replaced with each view layer's name when nodes are created. "
+            "Example: //renders/MyShot/{LayerName}/MyShot_{LayerName}"
+        ),
+        default="//RenderOutputs/{LayerName}/{LayerName}"
+    )
+    use_native_output_filepath: bpy.props.BoolProperty(
+        name="Use Native Output Filepath",
+        description=(
+            "Derive output paths from Blender's native render output path "
+            "(Output Properties → Output). The view layer name is appended as "
+            "a subfolder and as a suffix to the filename stem, e.g. "
+            "renders/MyShot/Env_All/MyShot_Env_All.####.exr"
+        ),
+        default=True,
+        update=_sync_template_from_native
     )
 
 classes = (
