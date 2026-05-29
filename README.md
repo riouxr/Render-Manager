@@ -118,6 +118,13 @@ Clicking **Create Render Nodes** clears the existing compositor node tree and re
 
 All nodes are wired automatically. Output paths follow whichever mode is selected (native or manual template).
 
+#### Separate RGB/Data *(on by default)*
+
+Controls whether data passes are written to their own file output node or merged into the color output.
+
+- **On** *(default)* — beauty/RGBA and light passes go to the **Color Output**, while data passes (Depth, Normal, Vector, Cryptomatte, etc.) go to a separate **Data Output** EXR.
+- **Off** — everything is written into a single combined output node. The color node is automatically forced to **32-bit** in this mode so data passes like Depth, Normal, and Vector keep full float precision. This produces fewer files at the cost of larger beauty EXRs.
+
 > **Note:** The file must be saved before running Create Render Nodes.
 
 ---
@@ -132,9 +139,17 @@ Denoising can be applied selectively per pass rather than only to the final comp
 **EEVEE passes:**
 - Image, Diffuse, Glossy, Transmission, Alpha, Emit, Environment, Shadow, AO
 
+Per-pass denoising **respects each view layer's existing pass configuration** — enabling a denoise toggle no longer force-enables render passes you deliberately turned off in **Render Layer Settings**. The toggles only control whether denoise nodes are created for passes that are already enabled. The *guide* passes the denoiser requires (**Normal**, and Cycles' **Denoising Data**) are still enabled automatically when a pass that depends on them is being denoised.
+
 Additional options:
 - **Save Noisy in File** — embed the noisy version alongside the denoised output in the same EXR.
 - **Save Noisy Separately** — write noisy passes to their own `_noisy` output node.
+
+#### Light Groups *(Cycles)*
+
+When **Light Group** denoising is enabled, every light group on the layer (Cycles exposes one `Combined_<GroupName>` pass per group) is detected and denoised individually.
+
+- **Include Combined RGBA with Light Groups** — also embeds the full combined RGBA beauty in the EXR alongside the light groups. This lets compositors see the final image without having to sum the individual light-group layers. It increases file size (the combined image plus its additive breakdown are both stored), but enabling it will generate the combined pass even if it was disabled on the layer.
 
 ---
 
