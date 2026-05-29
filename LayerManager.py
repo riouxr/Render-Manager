@@ -709,6 +709,7 @@ class RENDER_MANAGER_PT_panel(bpy.types.Panel):
         layout.operator("wm.view_layer_settings", text="Render Layer Settings", icon="MODIFIER")
         layout.operator("render_manager.collection_spreadsheet", text="Collection Manager", icon="OUTLINER_COLLECTION")
         layout.operator("wm.create_render_nodes", text="Create Render Nodes", icon="NODETREE")
+        layout.prop(scene.render_manager, "separate_rgb_data")
         side_col.separator()
         layout.use_property_split = True
         layout.use_property_decorate = False
@@ -762,6 +763,9 @@ class RENDER_MANAGER_PT_panel(bpy.types.Panel):
             sub = col.row()
             sub.prop(scene.render_manager, "denoise_lightgroup")
             sub.active = scene.render_manager.denoise
+            sub = col.row()
+            sub.prop(scene.render_manager, "lightgroup_include_combined")
+            sub.active = scene.render_manager.denoise and scene.render_manager.denoise_lightgroup
         elif "EEVEE" in engine:
             sub = col.row()
             sub.prop(scene.render_manager, "denoise_image")
@@ -1006,7 +1010,11 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
 
             used_slots = set()  # Reset per layer
 
-            # Enable passes for Eevee before creating RLayers node to ensure sockets
+            # Per-pass denoising does NOT force-enable render passes (diffuse, glossy,
+            # etc.) — it respects each layer's existing pass configuration and only
+            # denoises passes the user already enabled. However, the *guide* passes
+            # that the denoiser needs (Normal, and Cycles' Denoising Data) are enabled
+            # automatically when a pass that depends on them is being denoised.
             needs_normal_data = False
             if scene.render_manager.denoise and "EEVEE" in engine:
                 scene.render.film_transparent = True
@@ -1029,6 +1037,15 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 if needs_normal_data:
                     vl.use_pass_normal = True
 
+            # When outputting light groups with "Include Combined RGBA" enabled, make
+            # sure the combined beauty pass is generated even if the artist disabled it
+            # for a light-group-only workflow. Must run before the RLayers node is
+            # created so the "Image" socket exists.
+            if (scene.render_manager.denoise_lightgroup
+                    and scene.render_manager.lightgroup_include_combined
+                    and "CYCLES" in engine):
+                vl.use_pass_combined = True
+
             # Create RLayers node after enabling passes
             x_pos = 0
             y_pos = i * row_spacing
@@ -1037,10 +1054,13 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             per_layer_node.location = (x_pos, y_pos)
 
             # Initialize File Output nodes
+            separate_data = scene.render_manager.separate_rgb_data
             layer_color_node = node_tree.nodes.new("CompositorNodeOutputFile")
-            layer_data_node = node_tree.nodes.new("CompositorNodeOutputFile")
             layer_color_node.label = f"{clean_layer_name} Color Output"
-            layer_data_node.label = f"{clean_layer_name} Data Output"
+            layer_data_node = None
+            if separate_data:
+                layer_data_node = node_tree.nodes.new("CompositorNodeOutputFile")
+                layer_data_node.label = f"{clean_layer_name} Data Output"
 
             # ── Path resolution ──────────────────────────────────────────────
             if scene.render_manager.use_native_output_filepath:
@@ -1067,23 +1087,29 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             os.makedirs(abs_layer_base_path, exist_ok=True)
 
             set_output_node_base_path(layer_color_node, layer_base_path, layer_filename)
-            set_output_node_base_path(layer_data_node, layer_base_path, layer_data_filename)
+            if separate_data:
+                set_output_node_base_path(layer_data_node, layer_base_path, layer_data_filename)
 
 
 
             layer_color_node.format.file_format = "OPEN_EXR_MULTILAYER"
-            layer_data_node.format.file_format = "OPEN_EXR_MULTILAYER"
             layer_color_node.format.exr_codec = scene.render_manager.beauty_compression
-            layer_data_node.format.exr_codec = scene.render_manager.data_compression
-            if int(scene.render_manager.color_depth_override) == 0:
+            if not separate_data:
+                # Data passes are merged into this node; force 32-bit so passes
+                # like Depth/Normal/Vector keep full float precision.
+                layer_color_node.format.color_depth = "32"
+            elif int(scene.render_manager.color_depth_override) == 0:
                 layer_color_node.format.color_depth = scene.render.image_settings.color_depth
             else:
                 layer_color_node.format.color_depth = scene.render_manager.color_depth_override
-            layer_data_node.format.color_depth = "32"
             output_node_clear_slot(layer_color_node)
-            output_node_clear_slot(layer_data_node)
             layer_color_node.location = (x_pos + 4 * column_spacing, y_pos)
-            layer_data_node.location = (x_pos + 5 * column_spacing, y_pos)
+            if separate_data:
+                layer_data_node.format.file_format = "OPEN_EXR_MULTILAYER"
+                layer_data_node.format.exr_codec = scene.render_manager.data_compression
+                layer_data_node.format.color_depth = "32"
+                output_node_clear_slot(layer_data_node)
+                layer_data_node.location = (x_pos + 5 * column_spacing, y_pos)
 
             # Pre-create expected slots, adjusted for engine and combine settings
             initial_slots = ["Image", "rgba", "Alpha"]
@@ -1172,7 +1198,11 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
             noisy_passes = []
             backup_only_passes = ["Noisy Image", "Noisy Shadow Catcher"]
 
-            # Enable remaining passes for Cycles or other cases
+            # Per-pass denoising for Cycles does NOT force-enable render passes — it
+            # respects each layer's existing pass configuration and only denoises
+            # passes the user already enabled. The guide passes the denoiser needs
+            # (Normal, and Denoising Data) ARE enabled automatically when a pass that
+            # depends on them is being denoised.
             needs_denoising_data = False
             if scene.render_manager.denoise and "CYCLES" in engine:
                 if scene.render_manager.denoise_image and vl.use_pass_diffuse_color:
@@ -1505,20 +1535,26 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                                 pass
 
             # Handle Light Group Denoising
+            # Cycles exposes one socket per light group, named "Combined_<GroupName>".
+            # Match by prefix and handle every group (the old code only matched a group
+            # literally named "LightG" and stopped after the first one).
             if scene.render_manager.denoise_lightgroup and scene.render_manager.denoise and "CYCLES" in engine:
-                lg_y_offset_base = -750
+                lg_y_offset = -750
+                has_guides = (
+                    "Denoising Normal" in per_layer_node.outputs
+                    and "Denoising Albedo" in per_layer_node.outputs
+                )
                 for output_socket in per_layer_node.outputs:
-                    if output_socket.name == "Combined_LightG" and not output_socket.is_unavailable:
+                    if output_socket.name.startswith("Combined_") and not output_socket.is_unavailable:
                         lg_pass_name = output_socket.name
-                        lg_y_pos = y_pos + lg_y_offset_base
-                        if "Denoising Normal" in per_layer_node.outputs and "Denoising Albedo" in per_layer_node.outputs:
+                        lg_y_pos = y_pos + lg_y_offset
+                        if has_guides:
                             denoise_pass(node_tree, lg_pass_name, output_socket, per_layer_node.outputs["Denoising Normal"], per_layer_node.outputs["Denoising Albedo"], layer_color_node, x_pos + column_spacing + 300, lg_y_pos, noisy_passes)
-                            used_slots.add(lg_pass_name)
                         else:
-                            lg_slot = output_node_new_slot(layer_color_node, lg_pass_name)
-                            node_tree.links.new(output_socket, lg_slot)
-                            used_slots.add(lg_pass_name)
-                        break
+                            output_node_new_slot(layer_color_node, lg_pass_name)
+                            node_tree.links.new(output_socket, get_latest_input(layer_color_node))
+                        used_slots.add(lg_pass_name)
+                        lg_y_offset -= 50
 
             # Handle Other Individual Pass Denoising
             if scene.render_manager.denoise:
@@ -1599,16 +1635,22 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                     node_tree.links.new(noisy_pass, layer_noisy_node.inputs[noisy_name])
 
             # Connect Data Passes
+            data_output_node = layer_data_node if separate_data else layer_color_node
             for pass_name in data_passes:
                 if pass_name in per_layer_node.outputs:
-                    data_slot = output_node_new_slot(layer_data_node, pass_name)
-                    # data_input = layer_data_node.inputs[-1]
-                    data_input = get_latest_input(layer_data_node)
+                    data_slot = output_node_new_slot(data_output_node, pass_name)
+                    # data_input = data_output_node.inputs[-1]
+                    data_input = get_latest_input(data_output_node)
 
                     if scene.render_manager.fixed_for_y_up and pass_name in y_ups:
                         node_tree.links.new(y_ups[pass_name].outputs[0], data_input)
                     else:
                         node_tree.links.new(per_layer_node.outputs[pass_name], data_input)
+
+                    # When combining, data slots live on the color node and must be
+                    # marked used so the slot-cleanup pass below doesn't strip them.
+                    if not separate_data:
+                        used_slots.add(pass_name)
 
             # Connect Unlinked Passes
             for output_socket in per_layer_node.outputs:
@@ -1825,6 +1867,13 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
         description="Denoises passes related to light groups (requires manual setup in compositor)",
         default=False
     )
+    lightgroup_include_combined: bpy.props.BoolProperty(
+        name="Include Combined RGBA with Light Groups",
+        description="When light groups are output, also include the full combined RGBA "
+                    "beauty in the EXR. Lets compositors see the final image without "
+                    "summing the light groups. Increases file size",
+        default=False
+    )
     denoise_volumedir: bpy.props.BoolProperty(name="Volume Direct", description="Denoises Direct Volumetrics", default=False)
     denoise_volumeind: bpy.props.BoolProperty(name="Volume Indirect", description="Denoises Indirect Volumetrics", default=False)
     denoise_shadow_catcher: bpy.props.BoolProperty(name="Shadow Catcher", description="Denoises shadow catcher pass", default=False)
@@ -1842,6 +1891,11 @@ class RenderManagerSettings(bpy.types.PropertyGroup):
         name="Original Passes (32bit Only)",
         description="Save a full copy of the unmodified passes into a separate file",
         default=False
+    )
+    separate_rgb_data: bpy.props.BoolProperty(
+        name="Separate RGB/Data",
+        description="Write data passes (Depth, Normal, Vector, Cryptomatte, etc.) into their own file output node instead of combining them with the color/beauty output",
+        default=True
     )
     color_depth_override: bpy.props.EnumProperty(
         items=(("16", "16", ""), ("32", "32", "")),

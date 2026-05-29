@@ -1,3 +1,9 @@
+# Editor / tooling
+.claude/
+
+# Packaged extension builds
+*.zip
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
