@@ -1594,23 +1594,44 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         try_denoise_pass("Shadow Catcher", "Denoising Normal", "Denoising Albedo", -700)
                     
                 if scene.render_manager.denoise_image:
-                    if "CYCLES" in engine and scene.cycles.use_denoising:
+                    # The denoiser needs Normal and Albedo (diffuse color) guide
+                    # sockets. A freshly created view layer may not have these passes
+                    # enabled yet, so verify the sockets exist before wiring them up —
+                    # otherwise Blender raises a KeyError and leaves the node tree in a
+                    # broken state. If a guide pass is missing, fall back to linking the
+                    # plain Image so the output is still valid.
+                    diffuse_color_name = get_pass_name("diffuse_color")
+                    normal_socket = per_layer_node.outputs.get("Normal")
+                    albedo_socket = per_layer_node.outputs.get(diffuse_color_name)
+                    noisy_socket = per_layer_node.outputs.get("Noisy Image")
+                    guides_available = (
+                        normal_socket is not None and not normal_socket.is_unavailable and
+                        albedo_socket is not None and not albedo_socket.is_unavailable
+                    )
+                    if ("CYCLES" in engine and scene.cycles.use_denoising
+                            and guides_available
+                            and noisy_socket is not None and not noisy_socket.is_unavailable):
                         node_tree.links.new(per_layer_node.outputs["Image"], layer_color_node.inputs[color_node_image_input_name])
                         denoise_node = node_tree.nodes.new("CompositorNodeDenoise")
                         denoise_node.label = "Denoise Noisy Image"
                         denoise_node.location = (x_pos + column_spacing + 300, y_pos - 50)
                         denoise_node.hide = True
-                        node_tree.links.new(per_layer_node.outputs["Noisy Image"], denoise_node.inputs["Image"])
-                        node_tree.links.new(per_layer_node.outputs["Normal"], denoise_node.inputs["Normal"])
-                        node_tree.links.new(per_layer_node.outputs[get_pass_name("diffuse_color")], denoise_node.inputs["Albedo"])
+                        node_tree.links.new(noisy_socket, denoise_node.inputs["Image"])
+                        node_tree.links.new(normal_socket, denoise_node.inputs["Normal"])
+                        node_tree.links.new(albedo_socket, denoise_node.inputs["Albedo"])
 
                         output_node_new_slot(layer_color_node, color_node_image_input_name + " (Compositor Denoised)")
                         node_tree.links.new(denoise_node.outputs["Image"], layer_color_node.inputs[color_node_image_input_name + " (Compositor Denoised)"])
 
                         used_slots.add(color_node_image_input_name + " (Compositor Denoised)")
-                        noisy_passes.append([per_layer_node.outputs["Noisy Image"], "Image"])
+                        noisy_passes.append([noisy_socket, "Image"])
+                    elif guides_available:
+                        denoise_pass(node_tree, color_node_image_input_name, per_layer_node.outputs["Image"], normal_socket, albedo_socket, layer_color_node, x_pos + column_spacing + 300, y_pos - 50, noisy_passes)
+                        used_slots.add(color_node_image_input_name)
                     else:
-                        denoise_pass(node_tree, color_node_image_input_name, per_layer_node.outputs["Image"], per_layer_node.outputs["Normal"], per_layer_node.outputs[get_pass_name("diffuse_color")], layer_color_node, x_pos + column_spacing + 300, y_pos - 50, noisy_passes)
+                        # Guide passes not available on this layer — link the plain
+                        # Image so the layer still outputs a valid (undenoised) beauty.
+                        node_tree.links.new(per_layer_node.outputs["Image"], layer_color_node.inputs[color_node_image_input_name])
                         used_slots.add(color_node_image_input_name)
                 else:
                     node_tree.links.new(per_layer_node.outputs["Image"], layer_color_node.inputs[color_node_image_input_name])
