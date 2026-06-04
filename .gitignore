@@ -4,6 +4,12 @@
 # Packaged extension builds
 *.zip
 
+# Local test / repro scratch
+_repro_*.blend
+_repro_*.blend1
+_build_repro.py
+render_*/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

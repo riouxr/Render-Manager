@@ -1193,8 +1193,10 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                 "CryptoObject00", "CryptoObject01", "CryptoObject02",
                 "CryptoMaterial00", "CryptoMaterial01", "CryptoMaterial02",
                 "CryptoAsset00", "CryptoAsset01", "CryptoAsset02",
-                "Denoising Normal", "Denoising Albedo", "Denoising Depth"
             ]
+            # Denoising Data passes (Denoising Normal/Albedo/Depth) are only guide
+            # inputs for the denoiser — they are never written to the output EXR.
+            denoising_data_passes = ["Denoising Normal", "Denoising Albedo", "Denoising Depth"]
             noisy_passes = []
             backup_only_passes = ["Noisy Image", "Noisy Shadow Catcher"]
 
@@ -1674,8 +1676,11 @@ class RENDER_MANAGER_OT_create_render_nodes(bpy.types.Operator):
                         used_slots.add(pass_name)
 
             # Connect Unlinked Passes
+            # Denoising Data passes are guides only — never write them to the EXR,
+            # so exclude them here too (otherwise the catch-all would re-add them).
+            skip_unlinked = set(backup_only_passes) | set(denoising_data_passes)
             for output_socket in per_layer_node.outputs:
-                if not output_socket.is_unavailable and not output_socket.is_linked and output_socket.name not in backup_only_passes:
+                if not output_socket.is_unavailable and not output_socket.is_linked and output_socket.name not in skip_unlinked:
                     if output_socket.name not in layer_color_node.inputs:
                         try:
                             output_node_new_slot(layer_color_node, output_socket.name)
